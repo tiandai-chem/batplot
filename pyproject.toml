@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "batplot"
-version = "1.0.13"
+version = "1.0.14"
 description = "Interactive plotting for XRD, PDF, and XAS data (.xye, .xy, .qye, .dat, .csv, .gr, .nor, .chik, .chir)"
 authors = [
     { name = "Tian Dai", email = "tianda@uio.no" }
@@ -33,8 +33,9 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://pypi.org/project/batplot/"
-Repository = "https://pypi.org/project/batplot/"
+Homepage = "https://github.com/TianDai1729/batplot"
+Repository = "https://github.com/TianDai1729/batplot"
+Issues = "https://github.com/TianDai1729/batplot/issues"
 
 [project.scripts]
 batplot = "batplot.cli:main"
