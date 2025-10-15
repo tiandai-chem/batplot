@@ -14,6 +14,10 @@ from .utils import _confirm_overwrite
 from .ui import (
     ensure_text_visibility as _ui_ensure_text_visibility,
     update_tick_visibility as _ui_update_tick_visibility,
+    position_top_xlabel as _ui_position_top_xlabel,
+    position_right_ylabel as _ui_position_right_ylabel,
+    position_bottom_xlabel as _ui_position_bottom_xlabel,
+    position_left_ylabel as _ui_position_left_ylabel,
 )
 
 
@@ -29,11 +33,13 @@ def print_style_info(
     delta: float,
     label_text_objects: List,
     tick_state: Dict[str, bool],
+    cif_tick_series: Optional[List[tuple]] = None,
+    show_cif_hkl: Optional[bool] = None,
 ) -> None:
     print("\n--- Style / Diagnostics ---")
     fw, fh = fig.get_size_inches()
     print(f"Figure size (inches): {fw:.3f} x {fh:.3f}")
-    print(f"Figure DPI: {fig.dpi}")
+    # DPI omitted from compact style print
     bbox = ax.get_position()
     print(
         f"Axes position (figure fraction): x0={bbox.x0:.3f}, y0={bbox.y0:.3f}, w={bbox.width:.3f}, h={bbox.height:.3f}"
@@ -45,14 +51,7 @@ def print_style_info(
     print(
         f"Margins (subplot fractions): left={sp.left:.3f}, right={sp.right:.3f}, bottom={sp.bottom:.3f}, top={sp.top:.3f}"
     )
-    # Axes ranges
-    xlim = ax.get_xlim()
-    ylim = ax.get_ylim()
-    print(f"X range: {xlim[0]:.6g} .. {xlim[1]:.6g}")
-    print(f"Y range: {ylim[0]:.6g} .. {ylim[1]:.6g}")
-    # Axis labels
-    print(f"X label: {ax.get_xlabel()}")
-    print(f"Y label: {ax.get_ylabel()}")
+    # Omit ranges and axis labels from style print
     # Font info
     if label_text_objects:
         fs_any = label_text_objects[0].get_fontsize()
@@ -64,10 +63,38 @@ def print_style_info(
     print(f"Font family chain (rcParams['font.sans-serif']): {plt.rcParams.get('font.sans-serif')}")
     print(f"Mathtext fontset: {plt.rcParams.get('mathtext.fontset')}")
 
-    # Tick state
-    print("Tick visibility state:")
-    for k in sorted(tick_state.keys()):
-        print(f"  {k:<3} : {'ON ' if tick_state[k] else 'off'}")
+    # Per-side matrix summary (spine, major, minor, labels, title)
+    def _onoff(v):
+        return 'ON ' if bool(v) else 'off'
+    sides = (
+        ('bottom',
+         ax.spines.get('bottom').get_visible() if ax.spines.get('bottom') else False,
+         tick_state.get('b_ticks', tick_state.get('bx', True)),
+         tick_state.get('mbx', False),
+         tick_state.get('b_labels', tick_state.get('bx', True)),
+         bool(ax.get_xlabel())),
+        ('top',
+         ax.spines.get('top').get_visible() if ax.spines.get('top') else False,
+         tick_state.get('t_ticks', tick_state.get('tx', False)),
+         tick_state.get('mtx', False),
+         tick_state.get('t_labels', tick_state.get('tx', False)),
+         bool(getattr(ax, '_top_xlabel_on', False))),
+        ('left',
+         ax.spines.get('left').get_visible() if ax.spines.get('left') else False,
+         tick_state.get('l_ticks', tick_state.get('ly', True)),
+         tick_state.get('mly', False),
+         tick_state.get('l_labels', tick_state.get('ly', True)),
+         bool(ax.get_ylabel())),
+        ('right',
+         ax.spines.get('right').get_visible() if ax.spines.get('right') else False,
+         tick_state.get('r_ticks', tick_state.get('ry', False)),
+         tick_state.get('mry', False),
+         tick_state.get('r_labels', tick_state.get('ry', False)),
+         bool(getattr(ax, '_right_ylabel_on', False))),
+    )
+    print("Per-side: spine, major, minor, labels, title")
+    for name, spine, mj, mn, lbl, title in sides:
+        print(f"  {name:<6}: spine={_onoff(spine)} major={_onoff(mj)} minor={_onoff(mn)} labels={_onoff(lbl)} title={_onoff(title)}")
 
     # Tick widths helper
     def axis_tick_width(axis, which):
@@ -93,47 +120,17 @@ def print_style_info(
             f"  {name:<5} lw={spn.get_linewidth()} color={spn.get_edgecolor()} visible={spn.get_visible()}"
         )
 
-    # Global flags
-    print(
-        f"Mode: stack={'yes' if args.stack else 'no'}, autoscale={'yes' if args.autoscale else 'no'}, raw={'yes' if args.raw else 'no'}"
-    )
-    print(f"Current delta (offset spacing): {delta} (initial args.delta={args.delta})")
+    # Omit CIF/HKL details from compact style print
+
+    # Omit non-style global flags (mode/raw/autoscale/delta)
 
     # Curves
-    print("Curves:")
+    print("Lines (style):")
     for i, ln in enumerate(ax.lines):
-        col = ln.get_color()
-        lw = ln.get_linewidth()
-        ls = ln.get_linestyle()
-        mk = ln.get_marker()
-        a = ln.get_alpha()
-        xd, yd = ln.get_xdata(orig=False), ln.get_ydata(orig=False)
-        npts = len(xd)
-        xmn = np.min(xd) if npts else None
-        xmx = np.max(xd) if npts else None
-        ymn = np.min(yd) if npts else None
-        ymx = np.max(yd) if npts else None
-        off = offsets_list[i] if i < len(offsets_list) else None
+        col = ln.get_color(); lw = ln.get_linewidth(); ls = ln.get_linestyle()
+        mk = ln.get_marker(); ms = ln.get_markersize(); a = ln.get_alpha()
         base_label = labels[i] if i < len(labels) else ""
-        print(
-            f"  {i+1:02d}: label='{base_label}' n={npts} color={col} lw={lw} ls={ls} marker={mk} alpha={a} "
-            f"x=[{xmn},{xmx}] y=[{ymn},{ymx}] offset={off}"
-        )
-    print(f"Number of curves: {len(ax.lines)}")
-    print(
-        f"Stored full-length arrays: {len(x_full_list)} (x_full_list), {len(raw_y_full_list)} (raw_y_full_list)"
-    )
-    print(
-        f"Normalization: {'raw intensities' if args.raw else 'per-curve max scaled to 1 (current window)'}"
-    )
-    # Axis title placement state
-    try:
-        print(
-            f"Axis titles: bottom_x={'ON' if ax.get_xlabel() else 'off'} top_x={'ON' if getattr(ax,'_top_xlabel_on', False) else 'off'} "
-            f"left_y={'ON' if ax.get_ylabel() else 'off'} right_y={'ON' if getattr(ax,'_right_ylabel_on', False) else 'off'}"
-        )
-    except Exception:
-        pass
+        print(f"  {i+1:02d}: label='{base_label}' color={col} lw={lw} ls={ls} marker={mk} ms={ms} alpha={a}")
     print("--- End diagnostics ---\n")
 
 
@@ -148,10 +145,12 @@ def export_style_config(
     tick_state: Dict[str, bool],
     cif_tick_series: Optional[List[tuple]] = None,
 ) -> None:
+    """Export style configuration after displaying a summary and prompting the user.
+    
+    This function now matches the EC menu workflow: display summary, then prompt for export.
+    """
     try:
         fw, fh = fig.get_size_inches()
-        xlim = ax.get_xlim()
-        ylim = ax.get_ylim()
         sp = fig.subplotpars
 
         def axis_tick_width(axis, which):
@@ -173,12 +172,6 @@ def export_style_config(
                 "dpi": fig.dpi,
                 "frame_size": [frame_w_in, frame_h_in],
                 "axes_fraction": [bbox.x0, bbox.y0, bbox.width, bbox.height],
-            },
-            "axes": {
-                "xlabel": ax.get_xlabel(),
-                "ylabel": ax.get_ylabel(),
-                "xlim": list(xlim),
-                "ylim": list(ylim),
             },
             "margins": {
                 "left": sp.left,
@@ -208,7 +201,7 @@ def export_style_config(
             "lines": [
                 {
                     "index": i,
-                    "label": (labels[i] if i < len(labels) else ""),
+                    # label text is not a style item (handled by 'r'), don't export it
                     "color": ln.get_color(),
                     "linewidth": ln.get_linewidth(),
                     "linestyle": ln.get_linestyle(),
@@ -220,18 +213,7 @@ def export_style_config(
                 }
                 for i, ln in enumerate(ax.lines)
             ],
-            "delta": delta,
-            "mode": {"stack": bool(args.stack), "autoscale": bool(args.autoscale), "raw": bool(args.raw)},
-            "layout": {
-                "label_layout": "stack" if args.stack else "block_top_right",
-                "xaxis_type": (
-                    "Q"
-                    if getattr(args, "xaxis", "") == "Q"
-                    else getattr(args, "xaxis", "") or ""
-                ),
-            },
-            "normalization": "raw" if args.raw else "normalized",
-        }
+            }
         cfg["axis_titles"] = {
             "top_x": bool(getattr(ax, "_top_xlabel_on", False)),
             "right_y": bool(getattr(ax, "_right_ylabel_on", False)),
@@ -240,18 +222,43 @@ def export_style_config(
         }
         if cif_tick_series:
             cfg["cif_ticks"] = [
-                {"index": i, "label": lab, "color": color}
+                {"index": i, "color": color}
                 for i, (lab, fname, peaksQ, wl, qmax_sim, color) in enumerate(cif_tick_series)
             ]
-        if not filename.endswith(".bpcfg"):
-            filename += ".bpcfg"
-        target = _confirm_overwrite(filename)
-        if not target:
+        
+        # List existing .bpcfg files for user convenience
+        import os
+        try:
+            bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+        except Exception:
+            bpcfg_files = []
+
+        if bpcfg_files:
+            print("Existing .bpcfg files:")
+            for i, f in enumerate(bpcfg_files, 1):
+                print(f"  {i}: {f}")
+
+        choice = input("Export style to file? Enter filename or number to overwrite (q=cancel): ").strip()
+        if not choice or choice.lower() == 'q':
             print("Style export canceled.")
             return
-        with open(target, "w", encoding="utf-8") as f:
+
+        # Determine the target path
+        if choice.isdigit() and bpcfg_files and 1 <= int(choice) <= len(bpcfg_files):
+            target_path = bpcfg_files[int(choice) - 1]
+        else:
+            target_path = choice if choice.lower().endswith('.bpcfg') else f"{choice}.bpcfg"
+
+        # Only prompt ONCE for overwrite if the file exists
+        if os.path.exists(target_path):
+            yn = input(f"Overwrite '{target_path}'? (y/n): ").strip().lower()
+            if yn != 'y':
+                print("Style export canceled.")
+                return
+
+        with open(target_path, "w", encoding="utf-8") as f:
             json.dump(cfg, f, indent=2)
-        print(f"Exported style to {target}")
+        print(f"Exported style to {target_path}")
     except Exception as e:
         print(f"Error exporting style: {e}")
 
@@ -260,7 +267,10 @@ def apply_style_config(
     filename: str,
     fig,
     ax,
+    x_data_list: List[np.ndarray] | None,
     y_data_list: List[np.ndarray],
+    orig_y: List[np.ndarray] | None,
+    offsets_list: List[float] | None,
     label_text_objects: List,
     args,
     tick_state: Dict[str, bool],
@@ -321,6 +331,11 @@ def apply_style_config(
         # Font
         font_cfg = cfg.get("font", {})
         fam_chain = font_cfg.get("family_chain")
+        if not fam_chain:
+            # Accept legacy/simple form: { "family": "Arial" }
+            fam = font_cfg.get("family")
+            if isinstance(fam, str) and fam.strip():
+                fam_chain = [fam.strip(), 'DejaVu Sans', 'Arial', 'Helvetica']
         size_val = font_cfg.get("size")
         if fam_chain:
             plt.rcParams["font.family"] = "sans-serif"
@@ -329,16 +344,12 @@ def apply_style_config(
         if size_val is not None:
             try:
                 numeric_size = float(size_val)
+                plt.rcParams["font.size"] = numeric_size
             except Exception as e:
                 print(f"[DEBUG] Exception parsing font size: {e}")
                 numeric_size = None
 
-        # Axes labels
-        axes_cfg = cfg.get("axes", {})
-        if "xlabel" in axes_cfg:
-            ax.set_xlabel(axes_cfg["xlabel"])
-        if "ylabel" in axes_cfg:
-            ax.set_ylabel(axes_cfg["ylabel"])
+    # Do not change axis labels or limits in Styles import
 
         # Apply font changes to existing text objects
         if fam_chain or numeric_size is not None:
@@ -357,6 +368,41 @@ def apply_style_config(
                     lbl.set_fontsize(numeric_size)
                 if fam_chain:
                     lbl.set_fontfamily(fam_chain[0])
+            # Also update top/right tick labels (label2)
+            try:
+                for t in ax.xaxis.get_major_ticks():
+                    if hasattr(t, 'label2'):
+                        if numeric_size is not None:
+                            t.label2.set_fontsize(numeric_size)
+                        if fam_chain:
+                            t.label2.set_fontfamily(fam_chain[0])
+                for t in ax.yaxis.get_major_ticks():
+                    if hasattr(t, 'label2'):
+                        if numeric_size is not None:
+                            t.label2.set_fontsize(numeric_size)
+                        if fam_chain:
+                            t.label2.set_fontfamily(fam_chain[0])
+            except Exception:
+                pass
+            # Also update duplicate top/right artists if they exist
+            try:
+                art = getattr(ax, '_top_xlabel_artist', None)
+                if art is not None:
+                    if numeric_size is not None:
+                        art.set_fontsize(numeric_size)
+                    if fam_chain:
+                        art.set_fontfamily(fam_chain[0])
+            except Exception:
+                pass
+            try:
+                art = getattr(ax, '_right_ylabel_artist', None)
+                if art is not None:
+                    if numeric_size is not None:
+                        art.set_fontsize(numeric_size)
+                    if fam_chain:
+                        art.set_fontfamily(fam_chain[0])
+            except Exception:
+                pass
 
         # Tick visibility + widths
         ticks_cfg = cfg.get("ticks", {})
@@ -389,7 +435,7 @@ def apply_style_config(
             except Exception as e:
                 print(f"[DEBUG] Exception setting tick widths: {e}")
 
-        # Spines
+    # Spines
         for name, sp_dict in cfg.get("spines", {}).items():
             if name in ax.spines:
                 if "linewidth" in sp_dict:
@@ -402,7 +448,7 @@ def apply_style_config(
                 if "visible" in sp_dict:
                     ax.spines[name].set_visible(sp_dict["visible"])
 
-        # Lines
+    # Lines
         for entry in cfg.get("lines", []):
             idx = entry.get("index")
             if idx is None or not (0 <= idx < len(ax.lines)):
@@ -442,7 +488,6 @@ def apply_style_config(
                     ln.set_alpha(entry["alpha"])
                 except Exception:
                     pass
-
         # CIF tick sets (labels & colors)
         cif_cfg = cfg.get("cif_ticks", [])
         if cif_cfg and cif_tick_series is not None:
@@ -461,15 +506,8 @@ def apply_style_config(
                 except Exception:
                     pass
 
-        # Label layout
-        layout_cfg = cfg.get("layout", {})
-        cfg_layout = layout_cfg.get("label_layout")
-        if cfg_layout == "block_top_right" and not args.stack:
-            update_labels_func(ax, y_data_list, label_text_objects, False)
-        elif cfg_layout == "stack" and not args.stack:
-            print("Warning: Style file was created in stacked mode; current plot not stacked. Labels kept in block layout.")
-        else:
-            update_labels_func(ax, y_data_list, label_text_objects, args.stack)
+        # Re-run label placement with current mode (no mode changes via Styles)
+        update_labels_func(ax, y_data_list, label_text_objects, args.stack)
 
         # Margin / overflow handling
         try:
@@ -492,46 +530,71 @@ def apply_style_config(
             print(f"[DEBUG] Exception in fig.canvas.draw_idle: {e}")
         print(f"Applied style from {filename}")
 
-        # Axis title toggle state
+    # Axis title toggle state
         try:
+            # Preserve current pads to avoid drift when toggling presence via styles
+            try:
+                ax._pending_xlabelpad = getattr(ax.xaxis, 'labelpad', None)
+            except Exception:
+                pass
+            try:
+                ax._pending_ylabelpad = getattr(ax.yaxis, 'labelpad', None)
+            except Exception:
+                pass
             at_cfg = cfg.get("axis_titles", {})
-            # Top X title
-            if at_cfg.get("top_x") and not getattr(ax, "_top_xlabel_on", False) and ax.get_xlabel():
-                txt = ax.xaxis.get_label()
-                txt.set_position((0.5, 1.02))
-                txt.set_verticalalignment("bottom")
-                ax._top_xlabel_on = True
-            if not at_cfg.get("top_x") and getattr(ax, "_top_xlabel_on", False):
-                txt = ax.xaxis.get_label()
-                txt.set_position((0.5, -0.12))
-                txt.set_verticalalignment("top")
-                ax._top_xlabel_on = False
+            # Top X duplicate via artist
+            ax._top_xlabel_on = bool(at_cfg.get("top_x", False))
+            try:
+                _ui_position_top_xlabel(ax, fig, tick_state)
+            except Exception:
+                pass
             # Bottom X presence
             if not at_cfg.get("has_bottom_x", True):
                 ax.set_xlabel("")
             elif at_cfg.get("has_bottom_x", True) and not ax.get_xlabel():
                 if hasattr(ax, "_stored_xlabel"):
                     ax.set_xlabel(ax._stored_xlabel)
-            # Right Y duplicate
-            if at_cfg.get("right_y") and not getattr(ax, "_right_ylabel_on", False):
-                if not hasattr(ax, "_right_label_axis") or ax._right_label_axis is None:
-                    ax._right_label_axis = ax.twinx()
-                    ax._right_label_axis.set_frame_on(False)
-                    ax._right_label_axis.tick_params(
-                        which="both", length=0, labelleft=False, labelright=False
-                    )
-                ax._right_label_axis.set_ylabel(ax.get_ylabel())
-                ax._right_ylabel_on = True
-            if not at_cfg.get("right_y") and getattr(ax, "_right_ylabel_on", False):
-                if hasattr(ax, "_right_label_axis") and ax._right_label_axis is not None:
-                    ax._right_label_axis.set_ylabel("")
-                ax._right_ylabel_on = False
+            # Always re-position bottom xlabel to consume pending pad or set deterministic pad
+            try:
+                _ui_position_bottom_xlabel(ax, fig, tick_state)
+            except Exception:
+                pass
+            # Right Y duplicate via artist
+            ax._right_ylabel_on = bool(at_cfg.get("right_y", False))
+            try:
+                _ui_position_right_ylabel(ax, fig, tick_state)
+            except Exception:
+                pass
             # Left Y presence
             if not at_cfg.get("has_left_y", True):
                 ax.set_ylabel("")
             elif at_cfg.get("has_left_y", True) and not ax.get_ylabel():
                 if hasattr(ax, "_stored_ylabel"):
                     ax.set_ylabel(ax._stored_ylabel)
+            # Always re-position left ylabel to consume pending pad or set deterministic pad
+            try:
+                _ui_position_left_ylabel(ax, fig, tick_state)
+            except Exception:
+                pass
+            # After positioning, ensure duplicate top/right title artists adopt imported font
+            try:
+                if numeric_size is not None:
+                    art = getattr(ax, '_top_xlabel_artist', None)
+                    if art is not None:
+                        art.set_fontsize(numeric_size)
+                    art = getattr(ax, '_right_ylabel_artist', None)
+                    if art is not None:
+                        art.set_fontsize(numeric_size)
+                if fam_chain:
+                    fam0 = fam_chain[0]
+                    art = getattr(ax, '_top_xlabel_artist', None)
+                    if art is not None:
+                        art.set_fontfamily(fam0)
+                    art = getattr(ax, '_right_ylabel_artist', None)
+                    if art is not None:
+                        art.set_fontfamily(fam0)
+            except Exception:
+                pass
             fig.canvas.draw_idle()
         except Exception as e:
             print(f"[DEBUG] Exception in axis title toggle: {e}")

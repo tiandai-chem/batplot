@@ -30,3 +30,12 @@ coverage.xml
 
 # Logs
 *.log
+
+# Backup and temp files
+*~
+*.bak
+*.backup
+*.tmp
+*.swp
+*.swo
+batplot_new.py

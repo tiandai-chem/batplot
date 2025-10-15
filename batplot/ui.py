@@ -6,6 +6,7 @@ from typing import List, Dict, Any
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.ticker import AutoMinorLocator, NullFormatter
+import matplotlib.transforms as mtransforms
 
 
 def apply_font_changes(ax, fig, label_text_objects: List, normalize_label_text, new_size=None, new_family=None):
@@ -52,6 +53,18 @@ def apply_font_changes(ax, fig, label_text_objects: List, normalize_label_text, 
             lbl.set_fontsize(new_size)
         if new_family:
             lbl.set_fontfamily(new_family)
+    # Also update top/right tick labels (label2)
+    try:
+        for t in ax.xaxis.get_major_ticks():
+            if hasattr(t, 'label2'):
+                if new_size is not None: t.label2.set_size(new_size)
+                if new_family: t.label2.set_family(new_family)
+        for t in ax.yaxis.get_major_ticks():
+            if hasattr(t, 'label2'):
+                if new_size is not None: t.label2.set_size(new_size)
+                if new_family: t.label2.set_family(new_family)
+    except Exception:
+        pass
     fig.canvas.draw_idle()
 
 
@@ -77,41 +90,222 @@ def sync_fonts(ax, fig, label_text_objects: List):
 
 def position_top_xlabel(ax, fig, tick_state: Dict[str, bool]):
     try:
-        if not getattr(ax, '_top_xlabel_on', False):
-            return
-        if not hasattr(ax, '_top_xlabel_artist') or ax._top_xlabel_artist is None:
-            return
-        if tick_state.get('tx', False):
-            y_off = 0.09
+        on = bool(getattr(ax, '_top_xlabel_on', False))
+        if on:
+            # Try multiple sources for label text: bottom xlabel, stored, or existing artist
+            base = ax.get_xlabel()
+            if not base and hasattr(ax, '_stored_xlabel'):
+                try:
+                    base = ax._stored_xlabel
+                except Exception:
+                    pass
+            if not base:
+                prev = getattr(ax, '_top_xlabel_artist', None)
+                if prev is not None and hasattr(prev, 'get_text'):
+                    base = prev.get_text() or ''
+                else:
+                    base = ''
+            
+            # Get renderer without forcing draws (let main loop handle drawing)
+            try:
+                renderer = fig.canvas.get_renderer()
+            except Exception:
+                renderer = None
+
+            # Measure tick label height - ONLY use top labels for top title (independence)
+            dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
+            max_h_px = 0.0
+
+            # Measure TOP tick labels only (for independence from bottom side)
+            top_labels_on = bool(tick_state.get('t_labels', tick_state.get('tx', False)))
+            if top_labels_on and renderer is not None:
+                try:
+                    for t in ax.xaxis.get_major_ticks():
+                        lab = getattr(t, 'label2', None)
+                        if lab is not None and lab.get_visible():
+                            bb = lab.get_window_extent(renderer=renderer)
+                            if bb is not None:
+                                max_h_px = max(max_h_px, float(bb.height))
+                except Exception:
+                    pass
+
+            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
+            if max_h_px > 0:
+                tick_height_pts = max_h_px * 72.0 / dpi
+                dy_pts = tick_height_pts + 14.0  # 14pt gap to match bottom labelpad
+            else:
+                dy_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
+            
+            base_trans = ax.transAxes
+            off_trans = mtransforms.offset_copy(base_trans, fig=fig, x=0.0, y=dy_pts, units='points')
+            art = getattr(ax, '_top_xlabel_artist', None)
+            if art is None:
+                ax._top_xlabel_artist = ax.text(0.5, 1.0, base, ha='center', va='bottom', transform=off_trans, clip_on=False, zorder=10)
+            else:
+                ax._top_xlabel_artist.set_transform(off_trans)
+                ax._top_xlabel_artist.set_text(base)
+                ax._top_xlabel_artist.set_visible(True)
         else:
-            y_off = 0.02
-        ax._top_xlabel_artist.set_position((0.5, 1.0 + y_off))
-        fig.canvas.draw_idle()
+            if hasattr(ax, '_top_xlabel_artist') and ax._top_xlabel_artist is not None:
+                try:
+                    ax._top_xlabel_artist.set_visible(False)
+                except Exception:
+                    pass
+        # Do NOT call draw_idle() here - let the main loop handle drawing
     except Exception:
         pass
 
 
 def position_right_ylabel(ax, fig, tick_state: Dict[str, bool]):
     try:
-        if not getattr(ax, '_right_ylabel_on', False):
+        on = bool(getattr(ax, '_right_ylabel_on', False))
+        if on:
+            # Try multiple sources for label text: left ylabel, stored, or existing artist
+            base = ax.get_ylabel()
+            if not base and hasattr(ax, '_stored_ylabel'):
+                try:
+                    base = ax._stored_ylabel
+                except Exception:
+                    pass
+            if not base:
+                prev = getattr(ax, '_right_ylabel_artist', None)
+                if prev is not None and hasattr(prev, 'get_text'):
+                    base = prev.get_text() or ''
+                else:
+                    base = ''
+            
+            # Get renderer without forcing draws (let main loop handle drawing)
+            try:
+                renderer = fig.canvas.get_renderer()
+            except Exception:
+                renderer = None
+
+            # Measure tick label width - ONLY use right labels for right title (independence)
+            dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
+            max_w_px = 0.0
+
+            # Measure RIGHT tick labels only (for independence from left side)
+            right_labels_on = bool(tick_state.get('r_labels', tick_state.get('ry', False)))
+            if right_labels_on and renderer is not None:
+                try:
+                    for t in ax.yaxis.get_major_ticks():
+                        lab = getattr(t, 'label2', None)
+                        if lab is not None and lab.get_visible():
+                            bb = lab.get_window_extent(renderer=renderer)
+                            if bb is not None:
+                                max_w_px = max(max_w_px, float(bb.width))
+                except Exception:
+                    pass
+
+            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
+            if max_w_px > 0:
+                tick_width_pts = max_w_px * 72.0 / dpi
+                dx_pts = tick_width_pts + 14.0  # 14pt gap to match left labelpad
+            else:
+                dx_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
+            
+            # Place at (1.0, 0.5) in axes with a points-based offset to the right
+            base_trans = ax.transAxes
+            off_trans = mtransforms.offset_copy(base_trans, fig=fig, x=dx_pts, y=0.0, units='points')
+            art = getattr(ax, '_right_ylabel_artist', None)
+            if art is None:
+                ax._right_ylabel_artist = ax.text(
+                    1.0, 0.5, base,
+                    rotation=90, va='center', ha='left', transform=off_trans,
+                    clip_on=False, zorder=10
+                )
+            else:
+                ax._right_ylabel_artist.set_transform(off_trans)
+                ax._right_ylabel_artist.set_text(base)
+                ax._right_ylabel_artist.set_visible(True)
+        else:
+            if hasattr(ax, '_right_ylabel_artist') and ax._right_ylabel_artist is not None:
+                try:
+                    ax._right_ylabel_artist.set_visible(False)
+                except Exception:
+                    pass
+        # Do NOT call draw_idle() here - let the main loop handle drawing
+    except Exception:
+        pass
+
+
+def position_bottom_xlabel(ax, fig, tick_state: Dict[str, bool]):
+    """Adjust bottom X label spacing based on bottom tick label visibility.
+
+    Uses labelpad (in points). Larger pad when bottom tick labels are visible,
+    smaller when hidden.
+    """
+    try:
+        lbl = ax.get_xlabel()
+        if not lbl:
             return
-        art = getattr(ax, '_right_ylabel_artist', None)
-        if art is None:
+        # If a one-shot pad restore is pending (after hide->show), honor it once to avoid drift
+        if hasattr(ax, '_pending_xlabelpad') and ax._pending_xlabelpad is not None:
+            try:
+                ax.xaxis.labelpad = ax._pending_xlabelpad
+            finally:
+                try:
+                    delattr(ax, '_pending_xlabelpad')
+                except Exception:
+                    pass
             return
-        x_off = 1.10 if tick_state.get('ry', False) else 1.02
-        art.set_position((x_off, 0.5))
-        fig.canvas.draw_idle()
+        # Otherwise choose pad based on current tick label visibility
+        pad = 14 if bool(tick_state.get('b_labels', tick_state.get('bx', False))) else 6
+        try:
+            ax.xaxis.labelpad = pad
+        except Exception:
+            pass
+        # Do NOT call draw_idle() here - let the main loop handle drawing
+    except Exception:
+        pass
+
+
+def position_left_ylabel(ax, fig, tick_state: Dict[str, bool]):
+    """Adjust left Y label spacing based on left tick label visibility.
+
+    Uses labelpad (in points). Larger pad when left tick labels are visible,
+    smaller when hidden.
+    """
+    try:
+        lbl = ax.get_ylabel()
+        if not lbl:
+            return
+        # If a one-shot pad restore is pending (after hide->show), honor it once to avoid drift
+        if hasattr(ax, '_pending_ylabelpad') and ax._pending_ylabelpad is not None:
+            try:
+                ax.yaxis.labelpad = ax._pending_ylabelpad
+            finally:
+                try:
+                    delattr(ax, '_pending_ylabelpad')
+                except Exception:
+                    pass
+            return
+        pad = 14 if bool(tick_state.get('l_labels', tick_state.get('ly', False))) else 6
+        try:
+            ax.yaxis.labelpad = pad
+        except Exception:
+            pass
+        # Do NOT call draw_idle() here - let the main loop handle drawing
     except Exception:
         pass
 
 
 def update_tick_visibility(ax, tick_state: Dict[str, bool]):
-    ax.tick_params(axis='x',
-                   bottom=tick_state['bx'], labelbottom=tick_state['bx'],
-                   top=tick_state['tx'],    labeltop=tick_state['tx'])
-    ax.tick_params(axis='y',
-                   left=tick_state['ly'],  labelleft=tick_state['ly'],
-                   right=tick_state['ry'], labelright=tick_state['ry'])
+    # Support new separate tick/label keys; fallback to legacy when absent
+    if 'b_ticks' in tick_state or 'b_labels' in tick_state:
+        ax.tick_params(axis='x',
+                       bottom=bool(tick_state.get('b_ticks', True)), labelbottom=bool(tick_state.get('b_labels', True)),
+                       top=bool(tick_state.get('t_ticks', False)),   labeltop=bool(tick_state.get('t_labels', False)))
+        ax.tick_params(axis='y',
+                       left=bool(tick_state.get('l_ticks', True)),  labelleft=bool(tick_state.get('l_labels', True)),
+                       right=bool(tick_state.get('r_ticks', False)), labelright=bool(tick_state.get('r_labels', False)))
+    else:
+        ax.tick_params(axis='x',
+                       bottom=tick_state['bx'], labelbottom=tick_state['bx'],
+                       top=tick_state['tx'],    labeltop=tick_state['tx'])
+        ax.tick_params(axis='y',
+                       left=tick_state['ly'],  labelleft=tick_state['ly'],
+                       right=tick_state['ry'], labelright=tick_state['ry'])
     if tick_state['mbx'] or tick_state['mtx']:
         ax.xaxis.set_minor_locator(AutoMinorLocator())
         ax.xaxis.set_minor_formatter(NullFormatter())
@@ -132,6 +326,40 @@ def update_tick_visibility(ax, tick_state: Dict[str, bool]):
     else:
         ax.tick_params(axis='y', which='minor', left=False, right=False,
                        labelleft=False, labelright=False)
+    # After visibility changes, sync tick label fonts (label1 and label2) to rcParams
+    try:
+        fam_chain = plt.rcParams.get('font.sans-serif')
+        fam0 = fam_chain[0] if isinstance(fam_chain, list) and fam_chain else None
+        size0 = plt.rcParams.get('font.size', None)
+        # Standard tick labels (bottom/left)
+        for lbl in ax.get_xticklabels() + ax.get_yticklabels():
+            if size0 is not None:
+                try: lbl.set_fontsize(size0)
+                except Exception: pass
+            if fam0:
+                try: lbl.set_fontfamily(fam0)
+                except Exception: pass
+        # Top/right labels (label2)
+        for t in ax.xaxis.get_major_ticks():
+            lab2 = getattr(t, 'label2', None)
+            if lab2 is not None:
+                if size0 is not None:
+                    try: lab2.set_fontsize(size0)
+                    except Exception: pass
+                if fam0:
+                    try: lab2.set_fontfamily(fam0)
+                    except Exception: pass
+        for t in ax.yaxis.get_major_ticks():
+            lab2 = getattr(t, 'label2', None)
+            if lab2 is not None:
+                if size0 is not None:
+                    try: lab2.set_fontsize(size0)
+                    except Exception: pass
+                if fam0:
+                    try: lab2.set_fontfamily(fam0)
+                    except Exception: pass
+    except Exception:
+        pass
 
 
 def ensure_text_visibility(fig, ax, label_text_objects: List, max_iterations=4, check_only=False):
@@ -148,11 +376,19 @@ def ensure_text_visibility(fig, ax, label_text_objects: List, max_iterations=4, 
 
     def collect(renderer_obj):
         items = []
-        if ax.xaxis.label.get_text():
+        # CRITICAL: Check visibility to avoid measuring hidden labels
+        if ax.xaxis.label.get_text() and ax.xaxis.label.get_visible():
             try: items.append(ax.xaxis.label.get_window_extent(renderer=renderer_obj))
             except Exception: pass
-        if ax.yaxis.label.get_text():
+        if ax.yaxis.label.get_text() and ax.yaxis.label.get_visible():
             try: items.append(ax.yaxis.label.get_window_extent(renderer=renderer_obj))
+            except Exception: pass
+        # Include duplicate top/right title artists if present
+        if getattr(ax, '_top_xlabel_on', False) and hasattr(ax, '_top_xlabel_artist') and ax._top_xlabel_artist is not None:
+            try: items.append(ax._top_xlabel_artist.get_window_extent(renderer=renderer_obj))
+            except Exception: pass
+        if getattr(ax, '_right_ylabel_on', False) and hasattr(ax, '_right_ylabel_artist') and ax._right_ylabel_artist is not None:
+            try: items.append(ax._right_ylabel_artist.get_window_extent(renderer=renderer_obj))
             except Exception: pass
         for t in label_text_objects:
             try: items.append(t.get_window_extent(renderer=renderer_obj))
@@ -209,7 +445,11 @@ def resize_plot_frame(fig, ax, y_data_list: List, label_text_objects: List, args
         cur_ax_h_in = ax_bbox.height * fig_h_in
         print(f"Current canvas (fixed): {fig_w_in:.2f} x {fig_h_in:.2f} in")
         print(f"Current plot frame:     {cur_ax_w_in:.2f} x {cur_ax_h_in:.2f} in (W x H)")
-        spec = input("Enter new plot frame size (e.g. '6 4', '6x4', 'w=6 h=4', 'scale=1.2', single width, q=cancel): ").strip().lower()
+        try:
+            spec = input("Enter new plot frame size (e.g. '6 4', '6x4', 'w=6 h=4', 'scale=1.2', single width, q=cancel): ").strip().lower()
+        except KeyboardInterrupt:
+            print("Canceled.")
+            return
         if not spec or spec == 'q':
             print("Canceled.")
             return
@@ -296,6 +536,8 @@ def resize_plot_frame(fig, ax, y_data_list: List, label_text_objects: List, args
             print(f"Requested full-canvas frame. Canvas remains {fig_w_in:.2f} x {fig_h_in:.2f} in; frame now {final_w_in:.2f} x {final_h_in:.2f} in (maximum with minimum margins {min_margin_frac*100:.0f}%).")
         else:
             print(f"Plot frame set to {final_w_in:.2f} x {final_h_in:.2f} in inside fixed canvas {fig_w_in:.2f} x {fig_h_in:.2f} in.")
+    except KeyboardInterrupt:
+        print("Canceled.")
     except Exception as e:
         print(f"Error resizing plot frame: {e}")
 
@@ -307,7 +549,11 @@ def resize_canvas(fig, ax):
         frame_w_in_before = bbox_before.width * cur_w
         frame_h_in_before = bbox_before.height * cur_h
         print(f"Current canvas size: {cur_w:.2f} x {cur_h:.2f} in (frame {frame_w_in_before:.2f} x {frame_h_in_before:.2f} in)")
-        spec = input("Enter new canvas size (e.g. '8 6', '6x4', 'w=6 h=5', 'scale=1.2', q=cancel): ").strip().lower()
+        try:
+            spec = input("Enter new canvas size (e.g. '8 6', '6x4', 'w=6 h=5', 'scale=1.2', q=cancel): ").strip().lower()
+        except KeyboardInterrupt:
+            print("Canceled.")
+            return
         if not spec or spec == 'q':
             print("Canceled.")
             return
@@ -371,6 +617,8 @@ def resize_canvas(fig, ax):
                 note = " (clamped to fit)" if final_frame_w_in < frame_w_in_before or final_frame_h_in < frame_h_in_before else ""
             print(f"Canvas resized to {new_w:.2f} x {new_h:.2f} in; frame preserved at {final_frame_w_in:.2f} x {final_frame_h_in:.2f} in{note} (was {frame_w_in_before:.2f} x {frame_h_in_before:.2f}).")
         fig.canvas.draw_idle()
+    except KeyboardInterrupt:
+        print("Canceled.")
     except Exception as e:
         print(f"Error resizing canvas: {e}")
 
@@ -380,6 +628,8 @@ __all__ = [
     'sync_fonts',
     'position_top_xlabel',
     'position_right_ylabel',
+    'position_bottom_xlabel',
+    'position_left_ylabel',
     'update_tick_visibility',
     'ensure_text_visibility',
     'resize_plot_frame',

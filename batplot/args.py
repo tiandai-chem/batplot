@@ -3,40 +3,106 @@
 from __future__ import annotations
 
 import argparse
+import sys
+
+
+def _print_general_help() -> None:
+    msg = (
+        "batplot — quick plotting for lab data\n\n"
+        "What it does:\n"
+        "  • XY: XRD/PDF/XAS/... curves\n"
+        "  • EC: GC/CPC/dQdV/CV (from .csv or .mpt)\n"
+        "  • Operando: contour maps from a folder of normalized XY and .mpt files\n"
+        "  • Batch: export SVG plots for all files in a directory\n\n"
+        "How to run (basics):\n"
+        "  batplot file1.xy file2.qye [option1] [option2]             # XY curves\n"
+        "  batplot all                            # Batch mode: all XY files in current directory\n"
+        "  batplot --gc FILE.mpt --mass 7.0       # EC GC from .mpt (requires --mass mg)\n"
+        "  batplot --gc FILE.csv                  # EC GC from supported .csv (no mass required)\n"
+        "  batplot --gc all --mass 7.0            # Batch: all .mpt/.csv in directory (.mpt needs --mass)\n"
+        "  batplot --dqdv FILE.csv                # EC dQ/dV from supported .csv\n"
+        "  batplot --dqdv all                     # Batch: all .csv in directory (dQdV mode)\n"
+        "  batplot --cv FILE.mpt                  # EC CV (cyclic voltammetry) from .mpt\n"
+        "  batplot --cv all                       # Batch: all .mpt in directory (CV mode)\n"
+        "  batplot --operando [FOLDER]            # Operando contour from folder\n\n"
+        "  [options]\n"
+        "Features:\n"
+        "  • Quick plotting with sensible defaults, no config files needed\n"
+        "  • Supports many common file formats (see -h xy/ec/op)\n"
+        "  • Interactive menus (--interactive): styling, ranges, fonts, export, sessions\n"
+        "  • Batch processing: use 'all' or directory path with any mode\n\n"
+        "More help:\n"
+        "  batplot -h xy   # XY file plotting guide\n"
+        "  batplot -h ec   # Electrochemistry (GC/dQdV/CV/CPC) guide\n"
+        "  batplot -h op   # Operando guide\n"
+    )
+    print(msg)
+
+
+def _print_xy_help() -> None:
+    msg = (
+        "XY plots (diffraction/PDF/XAS)\n\n"
+        "Supported files: .xye .xy .qye .dat .csv .gr .nor .chik .chir .txt (2-col). CIF overlays supported.\n\n"
+        "Axis detection: .qye→Q, .gr→r, .nor→energy, .chik→k, .chir→r, else use --xaxis (Q, 2theta, r, k, energy, rft).\n"
+        "If mixing 2θ data in Q, give wavelength per-file (file.xye:1.5406) or global --wl.\n\n"
+        "Examples:\n"
+        "  batplot a.xye:1.5406 b.qye --stack --interactive\n"
+        "  batplot a.dat b.xy --xaxis 2theta --wl 1.54 --out fig.svg\n"
+        "  batplot pattern.qye ticks.cif --interactive\n\n"
+        "Tips:\n"
+        "  --delta/-d spacing between curves; --raw for raw intensity; --xrange min max; --out fig.svg\n"
+        "  Interactive menu: colors, fonts, lines, ticks, ranges, CIF hkl (z), style print/export/import, save.\n"
+        "  • CIF ticks/labels for diffraction, style import/export (.bpcfg), session save/load (.pkl)\n\n"
+    )
+    print(msg)
+
+
+def _print_ec_help() -> None:
+    msg = (
+        "Electrochemistry (GC, dQ/dV, CV, and CPC)\n\n"
+        "GC from .mpt: requires active mass in mg to compute mAh g⁻¹.\n"
+        "  batplot --gc file.mpt --mass 6.5 --interactive\n\n"
+        "GC from supported .csv: specific capacity is read directly (no --mass).\n"
+        "  batplot --gc file.csv\n\n"
+        "dQ/dV from supported .csv:\n"
+        "  batplot --dqdv file.csv\n\n"
+        "Cyclic voltammetry (CV) from .mpt: plots voltage vs current for each cycle.\n"
+        "  batplot --cv file.mpt\n\n"
+        "Capacity-per-cycle (CPC) with coulombic efficiency from .csv or .mpt (for .mpt, provide --mass mg):\n"
+        "  batplot --cpc file.csv\n"
+        "  batplot --cpc file.mpt --mass 1.2\n\n"
+        "Batch mode: Process all files in a directory and export to SVG.\n"
+        "  batplot --gc all --mass 7.0            # All .mpt/.csv files (.mpt requires --mass)\n"
+        "  batplot --cv all                       # All .mpt files (CV mode)\n"
+        "  batplot --dqdv all                     # All .csv files (dQdV mode)\n"
+        "  batplot --cpc all --mass 5.4           # All .mpt/.csv files (.mpt requires --mass)\n"
+        "  batplot --gc /path/to/folder --mass 6  # Process specific directory\n\n"
+        "Interactive (--interactive): choose cycles, colors/palettes, line widths, axis scales (linear/log/symlog),\n"
+        "rename axes, toggle ticks/titles/spines, print/export/import style (.bpcfg), save session (.pkl).\n"
+        "Note: Batch mode exports SVG files automatically; --interactive is for single-file plotting only.\n"
+    )
+    print(msg)
+
+
+def _print_op_help() -> None:
+    msg = (
+        "Operando contour plots\n\n"
+        "Example usage: batplot --operando --interactive --wl 0.25995\n"
+        "  • Folder should contain normalized XY files (.xy/.xye/.qye/.dat).\n"
+        "  • If no .qye present, provide --xaxis 2theta or set --wl for Q conversion.\n"
+        "  • If a BioLogic .mpt is present, an EC side panel will be added automatically.\n\n"
+        "Interactive (--interactive): resize axes/canvas, change colormap, set intensity range (oi),\n"
+        "EC y-axis options (time ↔ ions), geometry tweaks, print/export/import style, save session.\n"
+    )
+    print(msg)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        description=(
-            "batplot: Plot diffraction / PDF / XAS data (.xye, .xy, .qye, .dat, .csv, .gr, .nor, .chik, .chir, .txt)\n"
-            "  --delta or -d : vertical offset between curves (default 0.0 if --stack)\n"
-            "  --xrange min max : X-axis range (2θ or Q), Example: --xrange 2 10\n"
-            "  --out or -o : output image filename (default SVG), Example: --out figure.svg\n"
-            "  --xaxis : X-axis type override if the file extension is not recognized (choose from: 2theta, Q, r, k, energy, rft, or 'user defined')\n"
-            "  --wl : global wavelength (Å) for Q conversion, Example: --wl 1.5406\n"
-            "  --fullprof : FullProf matrix: xstart xend xstep [wavelength], Example: --fullprof 2 10 0.02 1.5406\n"
-            "  --raw : plot raw intensity values instead of normalized\n"
-            "  --stack : stack curves from top to bottom\n"
-            "  --interactive : keep figure open for interactive editing\n\n"
-            "File type and X-axis selection:\n"
-            "  - .qye: X axis is Q\n"
-            "  - .gr: X axis is r\n"
-            "  - .nor: X axis is Energy (eV)\n"
-            "  - .chik: X axis is k\n"
-            "  - .chir: X axis is r\n"
-            "  - .txt: Treated as generic 2-column data.\n"
-            "  If none of the files have a recognized extension, you must either provide a wavelength to each file (if you want to plot everything in Q space) or specify --xaxis (Q, 2theta, r, k, energy, rft, or 'user defined').\n\n"
-            "Example usages:\n"
-            "  batplot file1.xye:1.5406 file2.qye --stack --interactive\n"
-            "  batplot file1.dat file2.dat --wl 1.5406 --delta 1.0 --out figure.svg\n"
-            "  batplot file1.dat file2.xy --xaxis 2theta --raw --xrange 2 10\n"
-            "  batplot file1.qye file2.xye:1.54 structure1.cif structure2.cif --stack --interactive\n\n"
-            "Extra usage:\n"
-            "  batplot FOLDER    -> batch export all supported files in FOLDER to FOLDER/batplot_svg/*.svg\n"
-            "  batplot all       -> batch export all supported files in current directory to ./batplot_svg/*.svg\n"
-        ),
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-    )
+    # We use a custom help so users can request topic help via `-h xy|ec|op`.
+    parser = argparse.ArgumentParser(add_help=False)
+    # Topic-aware help flag (optional argument)
+    parser.add_argument("--help", "-h", nargs="?", const="", metavar="topic",
+                        help=argparse.SUPPRESS)
     parser.add_argument("files", nargs="*", help=argparse.SUPPRESS)
     parser.add_argument("--delta", "-d", type=float, default=None, help=argparse.SUPPRESS)
     parser.add_argument("--autoscale", action="store_true", help=argparse.SUPPRESS)
@@ -51,11 +117,36 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--savefig", type=str, help=argparse.SUPPRESS)
     parser.add_argument("--stack", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--operando", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--gc", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--mass", type=float, help=argparse.SUPPRESS)
+    parser.add_argument("--dqdv", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--cv", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--cpc", action="store_true", help=argparse.SUPPRESS)
     return parser
 
 
 def parse_args(argv=None):
-    return build_parser().parse_args(argv)
+    parser = build_parser()
+    # We need to parse known args first to handle our custom help without errors
+    ns, _unknown = parser.parse_known_args(argv)
+    topic = getattr(ns, 'help', None)
+    if topic is not None:
+        t = (topic or '').strip().lower()
+        if t in ("", "help"):
+            _print_general_help()
+        elif t in ("xy",):
+            _print_xy_help()
+        elif t in ("ec", "gc", "dqdv"):
+            _print_ec_help()
+        elif t in ("op", "operando"):
+            _print_op_help()
+        else:
+            _print_general_help()
+            print("\nUnknown help topic. Use: xy, ec, op")
+        sys.exit(0)
+    # No help requested: parse fully
+    return parser.parse_args(argv)
 
 
 __all__ = ["build_parser", "parse_args"]

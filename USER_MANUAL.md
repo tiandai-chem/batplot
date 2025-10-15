@@ -1,246 +1,158 @@
-# Batplot User Manual (v1.0.13)
+# batplot User Manual
+**v1.0.18, 2025-01-15**
 
-Batplot is a lightweight CLI tool for plotting XRD, PDF, and XAS data with an interactive editing mode.
+Batplot is a lightweight CLI tool for plotting XRD, PDF, XAS, electrochemistry, and operando data, featuring interactive and batch modes.
+The electrochemistry and operando plotting functions are inspired by the script written by Amalie, Erlend and Casper.
 
-Supported inputs:
-- XRD-like data: `.xye`, `.xy`, `.qye`, `.dat`, `.csv`, `.txt`
-- PDF data: `.gr`
-- XAS data: `.nor` (energy), `.chik` (k), `.chir` (FT-EXAFS R)
-- Crystallography: `.cif` (renders reflection ticks/labels; not intensity curves)
-
-Python 3.7–3.13 are supported.
+**Supported Python versions:** 3.7–3.13
 
 ---
 
 ## Installation
 
-From PyPI (recommended):
-
 ```bash
-python -m pip install -U batplot
+pip install batplot
 ```
 
-If a venv is used on macOS with spaces in the path (e.g., OneDrive), prefer module invocations (`python -m ...`).
+## Table of Contents
 
-Editable (local dev):
-
-```bash
-cd "/path/to/batplot_script"
-python -m pip install -U pip
-python -m pip install -e .
-```
+1. [Overview](#overview)
+2. [XY Mode](#normal-xy-mode)
+3. [Electrochemistry Mode](#electrochemistry-mode)
+4. [Operando Mode](#operando-mode)
 
 ---
 
-## Quick start
+## 1. Overview
 
-- Plot two datasets and export an SVG:
+Batplot supports three main figure types:
+- **Normal XY**: For XRD, PDF, XAS, and general 2D data.
+- **Electrochemistry (EC)**: For battery cycling and related data.
+- **Operando**: For synchronized plotting of structural and electrochemical data.
 
-```bash
-batplot a.qye b.qye --delta 0.2 --out figure.svg
-```
-
-- Enter interactive mode to edit the figure:
-
-```bash
-batplot a.qye b.qye --delta 0.2 --interactive
-```
-
-- Load a saved interactive session (`.pkl`) exactly as saved:
-
-```bash
-batplot mysession.pkl            # static
-batplot mysession.pkl --interactive  # interactive
-```
-
-Note: On some systems, the `batplot` shim can be stale; use the module runner:
-
-```bash
-python -m batplot.cli --help
-```
+**Key features:**
+- Interactive menu for live editing.
+- Save and reuse styles via `.bpcfg` files.
+- Save and reload full sessions as `.pkl` files for future editing.
 
 ---
 
-## File types and axis selection
+## 2. Normal XY Mode
 
-Batplot chooses the X-axis domain automatically from file types:
-- `.qye` → Q
-- `.gr` → r (Å)
-- `.nor` → energy (eV)
-- `.chik` → k (Å⁻¹)
-- `.chir` → r (FT-EXAFS R)
-- `.txt` → generic 2-column; requires `--xaxis` (Q, 2theta, r, k, energy, rft)
-- `.cif` → simulated reflection ticks in Q by default; convert to 2θ when plotting in 2θ
+### Supported Inputs
 
-You may not mix fundamentally different axis domains in one run (e.g., `.gr` with `.nor`). If needed, split into separate runs.
+- XRD: `.xye`, `.xy`, `.qye`, `.dat`, `.csv`, `.txt`
+- PDF: `.gr`
+- XAS: `.nor` (energy), `.chik` (k), `.chir` (FT-EXAFS R)
+- Crystallography: `.cif` (reflection ticks/labels only)
+- Generic/undefined: `.xy`, `.dat` or other types (will read the first two columns and plot as x and y)
 
-### Wavelength and 2θ
-- Provide a wavelength with each filename (`file.xye:1.5406`) or globally via `--wl 1.5406`.
-- For `.cif` used in 2θ mode, wavelength is required to convert Q ↔ 2θ (uses saved wl or `--wl`, default 1.5406 Å).
-
----
-
-## Command-line options (common)
-
-```text
---interactive          Keep the window open and enter interactive menu
---stack                Stack curves top→bottom (waterfall)
---delta, -d FLOAT      Vertical offset spacing (default 0.0 unless --stack)
---autoscale            Scale delta by curve’s Y-span when not stacked
---xrange, -r MIN MAX   Initial X range (also available in interactive ‘x’)
---raw                  Plot raw Y instead of normalized [0..1]
---xaxis TYPE           Override axis type (Q, 2theta, r, k, energy, rft)
---wl FLOAT             Wavelength (Å) for Q/2θ conversions
---fullprof ...         FullProf matrix: xstart xend xstep [wavelength]
---convert, -c FILES    Convert to .qye (requires --wl)
---out, -o PATH         Write image (SVG by default if no extension)
---savefig PATH         Pickle the Matplotlib Figure object (advanced)
-```
-
-Examples:
+### Example Usage
 
 ```bash
-# Two curves in Q (global wavelength for .xye)
-batplot a.xye b.qye --wl 1.5406 --delta 0.2 --interactive
+batplot file1.xye:1.54 file2.qye
+# Plot two files; .xye is converted to Q with wavelength 1.54 Å
 
-# 2θ mode with explicit axis
-a.xye b.xye --xaxis 2theta --wl 1.5406 --out plot.svg
+batplot file1.xye file2.dat --wl 1.54
+# Plot two 2theta files in Q space with wavelength 1.54 Å
 
-# Generic .txt requires an axis choice
-batplot data.txt --xaxis Q
+batplot file1.xye file2.xye --xaxis 2theta --interactive
+# Plot with 2theta as X axis and open interactive menu
 
-# Convert to .qye
-batplot --convert file1.xye file2.xy --wl 1.5406
-```
+batplot file1.xye:0.25995 file2.qye --stack --interactive
+# Stack two files and open the interactive menu
 
-Paths with spaces (macOS/OneDrive):
+batplot file1.xye:0.25995 file2.qye --stack --interactive
+# Stack two files and open the interactive menu
 
-```bash
-batplot "/Users/.../My files/a.qye" "/Users/.../My files/b.qye"
-```
+batplot file1.xye:0.25995 file2.qye structure1.cif structure2.cif --stack --interactive
+# Stack two files with reference cif ticks and open the interactive menu
 
----
-
-## Batch mode
-
-- `batplot DIR` → export all supported files in `DIR` to `DIR/batplot_svg/*.svg`
-- `batplot all` → export all supported files in the current directory
-
----
-
-## Interactive mode (keyboard)
-
-Press keys in the terminal after launching with `--interactive`.
-
-Main commands:
-- `c` Colors: manual per-curve colors; or apply a colormap to a range; change CIF tick colors (if present)
-- `f` Font: change size or family (Arial/Helvetica/Times/STIX/DejaVu)
-- `l` Lines: set curve line widths; frame/tick widths; dots-only or line+dots style
-- `t` Toggles: ticks/labels on each side, axis titles (bottom/top X, left/right Y), and frame spines
-- `a` Rearrange curves: reorder by indices (preserves axis title visibility)
-- `x` Set X-range; `y` Set Y-range (disabled in `--stack` for Y)
-- `d` Delta/offset spacing (disabled in `--stack`)
-- `r` Rename: curve labels, axis labels, CIF tick set names
-- `g` Resize: `p` plot frame inside fixed canvas; `c` canvas size
-- `v` Find peaks: lists peaks within a given X window and threshold
-- `n` Crosshair: show movable crosshair with live readout (Q/2θ only)
-- `p` Print style info; export style
-- `i` Import style from `.bpcfg` (applies fonts, spines, ticks, lines, etc.)
-- `e` Export image (temporarily removes numbering from labels)
-- `s` Save interactive session to `.pkl`
-- `z` Toggle hkl labels on CIF ticks (safety limits when too many peaks)
-- `b` Undo last change
-- `q` Quit interactive
-
-Tips:
-- Minor ticks can be toggled independently (mbx/mtx/mly/mry in `t`).
-- Duplicate axis titles (top X, right Y) are supported and respect tick-side spacing.
-
----
-
-## Sessions (`.pkl`) and fidelity
-
-- `s` saves an interactive session with data, labels, styles, tick states, spines, fonts, figure/canvas size, and CIF metadata.
-- Load with:
-
-```bash
-batplot session.pkl
-batplot session.pkl --interactive
-```
-
-Loaded sessions reproduce the saved appearance (including minor ticks, duplicated axis titles, spines, figure size/dpi). In 2θ, CIF ticks are drawn by converting stored Q positions using the saved or provided wavelength.
-
----
-
-## Styles (`.bpcfg`)
-
-- In `p` (style) menu, press `e` to export a style file.
-- Apply a style in another session with `i` and selecting the `.bpcfg` file.
-- Styles include: figure/canvas, margins, fonts, ticks/minor ticks, spines, line styles, and label layout.
-
----
-
-## CIF ticks and hkl labels
-
-- Add `.cif` files alongside data to draw reflection ticks (Q or 2θ depending on current axis).
-- In mixed mode (data + CIF), only ticks are drawn for CIF; intensities are not plotted.
-- `z` toggles hkl labels on/off; label density is automatically limited if peaks are too many.
-- Hover tooltips (when enabled) show the nearest CIF tick and hkl label.
-
-For 2θ, provide a wavelength (saved in sessions and used on reload).
-
----
-
-## Troubleshooting
-
-- “Mixed axis types” error: split into separate runs (e.g., `.gr` with `.nor` is not allowed together).
-- `.txt` without `--xaxis`: specify the domain (`--xaxis Q` or `2theta`, etc.).
-- CLI shim issues (no response or wrong Python): use `python -m batplot.cli ...`.
-- Headless export: omit `--interactive` and use `--out file.svg`.
-- OneDrive/paths with spaces: quote paths or the interpreter in VS Code tasks.
-- Pip script failures (Exit 126): always prefer `python -m pip ...`.
-
----
-
-## Examples
-
-- Stacked plot with CIF ticks in Q:
-
-```bash
-batplot sample1.qye sample2.qye structure.cif --stack --interactive
-```
-
-- 2θ with wavelength and style round-trip:
-
-```bash
-batplot a.xye b.xye --xaxis 2theta --wl 1.5406 --interactive
-# p -> e (export mystyle.bpcfg), s (save session.pkl), q
-batplot session.pkl --interactive
-# i -> mystyle.bpcfg
-```
-
-- Batch export current directory:
-
-```bash
 batplot all
+# Plot all supported files in the current folder
 ```
 
-- Convert to `.qye`:
+---
+
+## 3. Electrochemistry Mode
+
+### Supported Inputs
+
+- Neware `.csv` (GC, dQdV, CPC)
+- Biologic `.mpt` (GC, CV, CPC)
+
+### Plotting Modes
+
+**GC (Galvanostatic Cycling)**: Voltage vs. capacity plots showing charge/discharge cycles.
+
+**CV (Cyclic Voltammetry)**: Voltage vs. current plots for electrochemical characterization. Supports full interactive menu with cycle-by-cycle styling, colors, visibility control, and session save/load.
+
+**dQdV**: Differential capacity analysis (dQ/dV vs. voltage).
+
+**CPC (Chronopotentiometry/Chronoamperometry)**: Time-domain electrochemical measurements.
+
+### Example Usage
 
 ```bash
-batplot --convert file1.xy file2.xye --wl 1.5406
+batplot file.csv --gc --interactive
+# Plot GC data with interactive menu
+
+batplot file.csv --dqdv
+# Plot dQdV curve
+
+batplot file.mpt --cpc --mass 6.2 --interactive
+# Plot CPC from .mpt; capacity calculated using provided mass (mg)
+# For .csv, mass is not required
+
+batplot file.mpt --cv --interactive
+# Plot CV data with full interactive menu support
 ```
 
+### Batch Mode
+
+Export all EC files in a directory to SVG format:
+
+```bash
+batplot --gc all --mass 7.0
+# Process all .mpt and .csv files in current directory (GC mode)
+# Note: --mass only required for .mpt files; .csv files already contain capacity data
+# Outputs saved to batplot_svg/ subdirectory
+
+batplot --cv all
+# Process all .mpt files (CV mode)
+
+batplot --dqdv all
+# Process all .csv files (dQdV mode)
+
+batplot --cpc all --mass 5.4
+# Process all .mpt and .csv files (CPC mode)
+# Note: --mass only required for .mpt files
+
+batplot --gc /path/to/folder --mass 6.0
+# Process files in specific directory
+```
+
+**Note**: 
+- Batch mode automatically exports SVG plots to `batplot_svg/` subdirectory
+- For GC and CPC modes: `.csv` files don't need `--mass` (capacity already in file)
+- For GC and CPC modes: `.mpt` files require `--mass` parameter
+- Interactive mode (`--interactive`) is only available for single-file plotting
+
 ---
 
-## Notes and limits
+## 4. Operando Mode
 
-- Do not mix `.gr`, `.nor`, `.chik`, `.chir`, and Q/2θ/CIF together.
-- `.cif` intensity curves are not drawn; only reflection ticks/labels are supported.
-- Very large CIF peak lists may suppress hkl labels for responsiveness.
+### Requirements
 
----
+- Place both operando files (`.xye`, `.qye`, `.xy`, `.dat`) and EC files (`.mpt`) in the same directory.
+- Navigate to the folder before running Batplot.
 
-## Version
+### Example Usage
 
-This manual applies to batplot v1.0.13.
+```bash
+batplot --operando --interactive
+# Launch operando mode with interactive editing
+
+batplot --operando --wl 0.25995 --interactive
+# Launch operando mode with interactive editing, converting x axis from 2theta to Q space
+```
