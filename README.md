@@ -6,10 +6,10 @@
 
 ## Features
 
-- **Electrochemistry Modes**: Galvanostatic cycling (GC), cyclic voltammetry (CV), differential capacity (dQdV), chronopotentiometry (CPC)
+- **Electrochemistry Modes**: Galvanostatic cycling (GC), cyclic voltammetry (CV), differential capacity (dQdV), capacity per cycle (CPC) with multi-file support
 - **Structural Characterization**: XRD, PDF, XAS (XANES/EXAFS)
 - **Operando Analysis**: Correlate in-situ structural changes with electrochemical data
-- **Interactive Menu**: Real-time styling, cycle visibility control, color customization
+- **Interactive Menu**: Real-time styling, cycle visibility control, individual color customization for multi-file plots
 - **Session Persistence**: Save and reload complete plot states with `.pkl` files
 - **Style Management**: Import/export plot styles as `.bpcfg` files
 - **Batch Processing**: Plot multiple files simultaneously with automatic SVG export
@@ -47,8 +47,11 @@ batplot cyclic.mpt --cv --interactive
 # Differential capacity
 batplot battery.csv --dqdv
 
-# Chronopotentiometry with mass normalization
+# Capacity per cycle - single file
 batplot stability.mpt --cpc --mass 5.4 --interactive
+
+# Capacity per cycle - multiple files with individual color control
+batplot file1.csv file2.csv file3.mpt --cpc --mass 5.4 --interactive
 
 # Batch processing: export all EC files to SVG
 batplot --gc all         # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)

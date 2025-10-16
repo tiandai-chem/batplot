@@ -450,7 +450,9 @@ def load_operando_session(filename: str):
         print("Not an operando+EC session file.")
         return None
 
-    fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=int(sess['figure']['dpi']))
+    # Use standard DPI of 100 instead of saved DPI to avoid display-dependent issues
+    # (Retina displays, Windows scaling, etc. can cause saved DPI to differ)
+    fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=100)
     # Disable automatic layout adjustments to preserve saved geometry
     try:
         fig.set_layout_engine('none')
@@ -1040,7 +1042,9 @@ def load_ec_session(filename: str):
         print("Not an EC GC session file.")
         return None
 
-    fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=int(sess['figure']['dpi']))
+    # Use standard DPI of 100 instead of saved DPI to avoid display-dependent issues
+    # (Retina displays, Windows scaling, etc. can cause saved DPI to differ)
+    fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=100)
     # Preserve saved geometry by disabling auto layout
     try:
         fig.set_layout_engine('none')
@@ -1332,6 +1336,7 @@ def dump_cpc_session(
     sc_charge,
     sc_discharge,
     sc_eff,
+    file_data=None,
     skip_confirm: bool = False,
 ):
     """Serialize CPC plot including scatter data, styles, axes, and legend position.
@@ -1341,6 +1346,7 @@ def dump_cpc_session(
     tick widths, spines, frame size, and all visual styling.
     
     Args:
+        file_data: Optional list of multi-file data dictionaries
         skip_confirm: If True, skip overwrite confirmation (already handled by caller).
     """
     try:
@@ -1549,6 +1555,33 @@ def dump_cpc_session(
                 'chain': list(plt.rcParams.get('font.sans-serif', [])),
             },
         }
+        
+        # Add multi-file data if available
+        if file_data and isinstance(file_data, list) and len(file_data) > 0:
+            multi_files = []
+            for f in file_data:
+                file_info = {
+                    'filename': f.get('filename', 'unknown'),
+                    'visible': f.get('visible', True),
+                    'charge': {
+                        'x': _np.array(_scatter_xy(f.get('sc_charge', sc_charge))[0]),
+                        'y': _np.array(_scatter_xy(f.get('sc_charge', sc_charge))[1]),
+                        'color': _color_of(f.get('sc_charge')),
+                    },
+                    'discharge': {
+                        'x': _np.array(_scatter_xy(f.get('sc_discharge', sc_discharge))[0]),
+                        'y': _np.array(_scatter_xy(f.get('sc_discharge', sc_discharge))[1]),
+                        'color': _color_of(f.get('sc_discharge')),
+                    },
+                    'efficiency': {
+                        'x': _np.array(_scatter_xy(f.get('sc_eff', sc_eff))[0]),
+                        'y': _np.array(_scatter_xy(f.get('sc_eff', sc_eff))[1]),
+                        'color': _color_of(f.get('sc_eff')),
+                    }
+                }
+                multi_files.append(file_info)
+            meta['multi_files'] = multi_files
+        
         if skip_confirm:
             target = filename
         else:
@@ -1578,7 +1611,9 @@ def load_cpc_session(filename: str):
         print("Not a CPC session file.")
         return None
     try:
-        fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=int(sess['figure']['dpi']))
+        # Use standard DPI of 100 instead of saved DPI to avoid display-dependent issues
+        # (Retina displays, Windows scaling, etc. can cause saved DPI to differ)
+        fig = plt.figure(figsize=tuple(sess['figure']['size']), dpi=100)
         # Disable auto layout
         try:
             fig.set_layout_engine('none')
@@ -1603,7 +1638,7 @@ def load_cpc_session(filename: str):
         ax_meta = sess.get('axis', {})
         try:
             ax.set_xlabel(ax_meta.get('xlabel') or 'Cycle number')
-            ax.set_ylabel(ax_meta.get('ylabel_left') or 'Specific Capacity (mAh g⁻¹)')
+            ax.set_ylabel(ax_meta.get('ylabel_left') or r'Specific Capacity (mAh g$^{-1}$)')
             ax2.set_ylabel(ax_meta.get('ylabel_right') or 'Efficiency (%)')
             if ax_meta.get('xlim'): ax.set_xlim(*ax_meta['xlim'])
             if ax_meta.get('ylim_left'): ax.set_ylim(*ax_meta['ylim_left'])
@@ -1618,7 +1653,7 @@ def load_cpc_session(filename: str):
             try:
                 lp = ax_meta.get('y_left_labelpad')
                 if lp is not None:
-                    ax.set_ylabel(ax_meta.get('ylabel_left') or 'Specific Capacity (mAh g⁻¹)', labelpad=float(lp))
+                    ax.set_ylabel(ax_meta.get('ylabel_left') or r'Specific Capacity (mAh g$^{-1}$)', labelpad=float(lp))
             except Exception:
                 pass
             try:

@@ -13,7 +13,7 @@ from typing import Dict, Any, Optional
 import numpy as np
 import matplotlib.pyplot as plt
 
-from .readers import read_mpt_file, read_ec_csv_file, read_ec_csv_dqdv_file
+from .readers import read_mpt_file, read_ec_csv_file, read_ec_csv_dqdv_file, read_biologic_txt_file
 from .electrochem_interactive import electrochem_interactive_menu
 
 # Try to import optional interactive menus
@@ -38,7 +38,7 @@ def handle_cv_mode(args) -> int:
         Exit code (0 for success, 1 for error)
     """
     if len(args.files) != 1:
-        print("CV mode: provide exactly one .mpt file.")
+        print("CV mode: provide exactly one file (.mpt or .txt).")
         return 1
         
     ec_file = args.files[0]
@@ -47,7 +47,11 @@ def handle_cv_mode(args) -> int:
         return 1
         
     try:
-        voltage, current, cycles = read_mpt_file(ec_file, mode='cv')
+        # Support both .mpt and .txt formats
+        if ec_file.lower().endswith('.txt'):
+            voltage, current, cycles = read_biologic_txt_file(ec_file, mode='cv')
+        else:
+            voltage, current, cycles = read_mpt_file(ec_file, mode='cv')
         # Normalize cycle indices to start at 1
         cyc_int_raw = np.array(np.rint(cycles), dtype=int)
         if cyc_int_raw.size:
@@ -155,11 +159,11 @@ def handle_gc_mode(args) -> int:
                 print("Example: batplot file.mpt --gc --mass 7.0")
                 return 1
             specific_capacity, voltage, cycle_numbers, charge_mask, discharge_mask = read_mpt_file(ec_file, mode='gc', mass_mg=mass_mg)
-            x_label_gc = 'Specific Capacity (mAh g⁻¹)'
+            x_label_gc = r'Specific Capacity (mAh g$^{-1}$)'
             cap_x = specific_capacity
         elif ec_file.lower().endswith('.csv'):
             cap_x, voltage, cycle_numbers, charge_mask, discharge_mask = read_ec_csv_file(ec_file, prefer_specific=True)
-            x_label_gc = 'Specific Capacity (mAh g⁻¹)'
+            x_label_gc = r'Specific Capacity (mAh g$^{-1}$)'
         else:
             print("GC mode: file must be .mpt or .csv")
             return 1

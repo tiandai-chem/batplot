@@ -322,11 +322,8 @@ def apply_style_config(
                 fig.subplots_adjust(left=left, right=left + w_frac, bottom=bottom, top=bottom + h_frac)
         except Exception as e:
             print(f"[DEBUG] Exception in frame/axes fraction adjustment: {e}")
-        if "dpi" in figure_cfg:
-            try:
-                fig.set_dpi(int(figure_cfg["dpi"]))
-            except Exception as e:
-                print(f"[DEBUG] Exception setting dpi: {e}")
+        # Don't restore DPI from style - use system default to avoid display-dependent issues
+        # (Retina displays, Windows scaling, etc. can cause saved DPI to differ)
 
         # Font
         font_cfg = cfg.get("font", {})

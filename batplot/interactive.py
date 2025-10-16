@@ -745,11 +745,8 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         pass
                 else:
                     print("(Canvas fixed) Ignoring undo figure size restore.")
-            if snap.get("fig_dpi"):
-                try:
-                    fig.set_dpi(int(snap["fig_dpi"]))
-                except Exception:
-                    pass
+            # Don't restore DPI from undo - use system default to avoid display-dependent issues
+            
             # Restore axes (plot frame) via stored bbox if present
             if snap.get("axes_bbox") and isinstance(snap["axes_bbox"], (list, tuple)) and len(snap["axes_bbox"])==4:
                 try:

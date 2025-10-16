@@ -131,7 +131,8 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
             if not line:
                 continue
             try:
-                values = [float(val) for val in line.split('\t')]
+                # Replace comma decimal separator with period (European locale support)
+                values = [float(val.replace(',', '.')) for val in line.split('\t')]
                 if len(values) == len(column_names):
                     data_lines.append(values)
             except ValueError:
@@ -156,17 +157,28 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
         # Skip first line of data as requested
         data = data[1:]
 
-        # Required columns
+        # Required columns - try common variations
         voltage_col = col_map.get('Ewe/V', None)
+        if voltage_col is None:
+            voltage_col = col_map.get('Ewe', None)
+        
         q_charge_col = col_map.get('Q charge/mA.h', None)
+        if q_charge_col is None:
+            q_charge_col = col_map.get('Q charge/mAh', None)
+        
         q_discharge_col = col_map.get('Q discharge/mA.h', None)
+        if q_discharge_col is None:
+            q_discharge_col = col_map.get('Q discharge/mAh', None)
         
         if voltage_col is None:
-            raise ValueError("Could not find 'Ewe/V' column for voltage")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Ewe/V' or 'Ewe' column for voltage.\nAvailable columns: {available}")
         if q_charge_col is None:
-            raise ValueError("Could not find 'Q charge/mA.h' column")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Q charge/mA.h' or 'Q charge/mAh' column.\nAvailable columns: {available}")
         if q_discharge_col is None:
-            raise ValueError("Could not find 'Q discharge/mA.h' column")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Q discharge/mA.h' or 'Q discharge/mAh' column.\nAvailable columns: {available}")
 
         voltage = data[:, voltage_col]
         q_charge = data[:, q_charge_col]
@@ -265,29 +277,43 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
     
     elif mode == 'time':
         # Time series: time vs voltage/current
-        try:
-            time_col = col_map['time/s']
-            voltage_col = col_map['Ewe/V']
-            current_col = col_map['<I>/mA']
-            
-            time_data = data[:, time_col]
-            voltage_data = data[:, voltage_col]
-            current_data = data[:, current_col]
-            
-            return (time_data, voltage_data, current_data)
-            
-        except KeyError as e:
-            raise ValueError(f"Required column not found for time series: {e}")
+        time_col = col_map.get('time/s', None)
+        voltage_col = col_map.get('Ewe/V', None)
+        if voltage_col is None:
+            voltage_col = col_map.get('Ewe', None)
+        current_col = col_map.get('<I>/mA', None)
+        
+        if time_col is None:
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'time/s' column.\nAvailable columns: {available}")
+        if voltage_col is None:
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Ewe/V' or 'Ewe' column.\nAvailable columns: {available}")
+        if current_col is None:
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find '<I>/mA' column.\nAvailable columns: {available}")
+        
+        time_data = data[:, time_col]
+        voltage_data = data[:, voltage_col]
+        current_data = data[:, current_col]
+        
+        return (time_data, voltage_data, current_data)
     
     elif mode == 'cv':
         # Cyclic voltammetry: voltage vs current, split by cycle
         voltage_col = col_map.get('Ewe/V', None)
+        if voltage_col is None:
+            voltage_col = col_map.get('Ewe', None)
         current_col = col_map.get('<I>/mA', None)
         cycle_col = col_map.get('cycle number', None)
+        
         if voltage_col is None:
-            raise ValueError("Could not find 'Ewe/V' column for voltage")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Ewe/V' or 'Ewe' column for voltage.\nAvailable columns: {available}")
         if current_col is None:
-            raise ValueError("Could not find '<I>/mA' column for current")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find '<I>/mA' column for current.\nAvailable columns: {available}")
+        
         voltage = data[:, voltage_col]
         current = data[:, current_col]
         if cycle_col is not None:
@@ -305,14 +331,21 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
         # Skip first line of data
         data = data[1:]
 
-        # Required columns
+        # Required columns - try common variations
         q_charge_col = col_map.get('Q charge/mA.h', None)
+        if q_charge_col is None:
+            q_charge_col = col_map.get('Q charge/mAh', None)
+        
         q_discharge_col = col_map.get('Q discharge/mA.h', None)
+        if q_discharge_col is None:
+            q_discharge_col = col_map.get('Q discharge/mAh', None)
         
         if q_charge_col is None:
-            raise ValueError("Could not find 'Q charge/mA.h' column")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Q charge/mA.h' or 'Q charge/mAh' column.\nAvailable columns: {available}")
         if q_discharge_col is None:
-            raise ValueError("Could not find 'Q discharge/mA.h' column")
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Q discharge/mA.h' or 'Q discharge/mAh' column.\nAvailable columns: {available}")
 
         q_charge = data[:, q_charge_col]
         q_discharge = data[:, q_discharge_col]
@@ -407,6 +440,75 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
         raise ValueError(f"Unknown mode '{mode}'. Use 'gc', 'time', or 'cpc'.")
 
 
+def read_biologic_txt_file(fname: str, mode: str = 'cv') -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Read BioLogic tab-separated text export (simplified format without EC-Lab header).
+    
+    These .txt files have a single header line with tab-separated column names,
+    followed by tab-separated data rows. Common format from BioLogic EC-Lab exports.
+    
+    Args:
+        fname: Path to .txt file
+        mode: Currently only 'cv' is supported (cyclic voltammetry)
+    
+    Returns:
+        For 'cv' mode: (voltage, current, cycles)
+    """
+    data_lines = []
+    column_names = []
+    
+    with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+        # First line is the header
+        header_line = f.readline().strip()
+        column_names = [col.strip() for col in header_line.split('\t')]
+        
+        # Read data lines
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                # Replace comma decimal separator with period (European locale support)
+                values = [float(val.replace(',', '.')) for val in line.split('\t')]
+                if len(values) == len(column_names):
+                    data_lines.append(values)
+            except ValueError:
+                continue
+    
+    if not data_lines:
+        raise ValueError(f"No valid data found in {fname}")
+    
+    # Convert to numpy array
+    data = np.array(data_lines)
+    
+    # Create column index mapping
+    col_map = {name: i for i, name in enumerate(column_names)}
+    
+    if mode == 'cv':
+        # Cyclic voltammetry: voltage vs current, split by cycle
+        voltage_col = col_map.get('Ewe/V', None)
+        if voltage_col is None:
+            voltage_col = col_map.get('Ewe', None)
+        current_col = col_map.get('<I>/mA', None)
+        cycle_col = col_map.get('cycle number', None)
+        
+        if voltage_col is None:
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find 'Ewe/V' or 'Ewe' column for voltage.\nAvailable columns: {available}")
+        if current_col is None:
+            available = ', '.join(f"'{c}'" for c in column_names)
+            raise ValueError(f"Could not find '<I>/mA' column for current.\nAvailable columns: {available}")
+        
+        voltage = data[:, voltage_col]
+        current = data[:, current_col]
+        if cycle_col is not None:
+            cycles = data[:, cycle_col].astype(int)
+        else:
+            cycles = np.ones(len(voltage), dtype=int)
+        return voltage, current, cycles
+    else:
+        raise ValueError(f"Unknown mode '{mode}' for .txt file. Currently only 'cv' is supported.")
+
+
 def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Read a cycler-exported CSV (e.g., Neware-like) and extract arrays for GC plotting.
 
@@ -463,6 +565,7 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
     v_idx = _find('Voltage(V)')
     i_idx = _find('Current(mA)')
     cyc_idx = _find('Cycle Index')
+    step_type_idx = _find('Step Type')  # Optional: explicitly indicates charge/discharge
     if v_idx is None or i_idx is None:
         raise ValueError("CSV missing required 'Voltage(V)' or 'Current(mA)' columns")
 
@@ -518,79 +621,103 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
         elif (not use_specific) and cap_abs_idx is not None:
             cap_x[k] = _to_float(row[cap_abs_idx])
 
-    # --- Derive charge/discharge by voltage trend (robust to current sign conventions) ---
-    # Compute a tolerant derivative and propagate direction over plateaus (|dv| <= eps)
-    # eps based on dynamic range to avoid noise flips
-    v_clean = np.array(voltage, dtype=float)
-    v_min = np.nanmin(v_clean) if np.isfinite(v_clean).any() else 0.0
-    v_max = np.nanmax(v_clean) if np.isfinite(v_clean).any() else 1.0
-    v_span = max(1e-6, float(v_max - v_min))
-    eps = max(1e-6, 1e-4 * v_span)
-    dv = np.diff(v_clean)
-    dv = np.nan_to_num(dv, nan=0.0, posinf=0.0, neginf=0.0)
-
+    # --- Derive charge/discharge from Step Type column (if available) or voltage trend ---
+    # First try to use explicit Step Type column (e.g., "CC Chg", "CC DChg", "Charge", "Discharge")
     is_charge = np.zeros(n, dtype=bool)
-    # Initial direction: first significant dv sets the sign; fallback to current sign if needed
-    init_dir = None
-    for d in dv[: min(500, dv.size)]:
-        if abs(d) > eps:
-            init_dir = (d > 0)
-            break
-    if init_dir is None:
-        # Fallback: use sign of first non-zero current; else assume charge
-        nz = None
-        for i_val in current:
-            if abs(i_val) > 1e-12 and np.isfinite(i_val):
-                nz = (i_val >= 0)
+    if step_type_idx is not None:
+        # Parse Step Type to determine charge/discharge
+        for k, row in enumerate(rows):
+            if len(row) < len(header):
+                row = row + [''] * (len(header) - len(row))
+            step_type = str(row[step_type_idx]).strip().lower()
+            # Check for discharge first (since "discharge" contains "charge")
+            # Discharge indicators: "dchg", "dischg", "discharge", "cc dchg", etc.
+            is_dchg = 'dchg' in step_type or 'dischg' in step_type or step_type.startswith('dis')
+            # Then check for charge indicators: "chg", "charge", "cc chg", etc.
+            is_chg = (not is_dchg) and (('chg' in step_type) or ('charge' in step_type))
+            # If it's clearly charge, mark as charge; if discharge, mark as discharge
+            # Otherwise (Rest, CV, etc.), use previous direction or fallback
+            if is_chg:
+                is_charge[k] = True
+            elif is_dchg:
+                is_charge[k] = False
+            else:
+                # For Rest/CV, inherit from previous row (or default to charge for first row)
+                is_charge[k] = is_charge[k-1] if k > 0 else True
+    else:
+        # Fallback: derive charge/discharge by voltage trend (robust to current sign conventions)
+        # Compute a tolerant derivative and propagate direction over plateaus (|dv| <= eps)
+        # eps based on dynamic range to avoid noise flips
+        v_clean = np.array(voltage, dtype=float)
+        v_min = np.nanmin(v_clean) if np.isfinite(v_clean).any() else 0.0
+        v_max = np.nanmax(v_clean) if np.isfinite(v_clean).any() else 1.0
+        v_span = max(1e-6, float(v_max - v_min))
+        eps = max(1e-6, 1e-4 * v_span)
+        dv = np.diff(v_clean)
+        dv = np.nan_to_num(dv, nan=0.0, posinf=0.0, neginf=0.0)
+        # Initial direction: first significant dv sets the sign; fallback to current sign if needed
+        init_dir = None
+        for d in dv[: min(500, dv.size)]:
+            if abs(d) > eps:
+                init_dir = (d > 0)
                 break
-        init_dir = True if nz is None else bool(nz)
-    prev_dir = init_dir
-    for k in range(n):
-        dir_set = None
-        # Prefer backward-looking difference to keep the last sample of a run with its run
-        if k > 0:
-            db = dv[k-1]
-            if abs(db) > eps:
-                dir_set = (db > 0)
-        # Fallback: look forward to the next informative change (for first sample of a run)
-        if dir_set is None:
-            j = k
-            while j < n-1:
-                d = dv[j]
-                if abs(d) > eps:
-                    dir_set = (d > 0)
+        if init_dir is None:
+            # Fallback: use sign of first non-zero current; else assume charge
+            nz = None
+            for i_val in current:
+                if abs(i_val) > 1e-12 and np.isfinite(i_val):
+                    nz = (i_val >= 0)
                     break
-                j += 1
-        # If still None (flat series), keep previous
-        if dir_set is None:
-            dir_set = prev_dir
-        is_charge[k] = dir_set
-        prev_dir = dir_set
+            init_dir = True if nz is None else bool(nz)
+        prev_dir = init_dir
+        for k in range(n):
+            dir_set = None
+            # Prefer backward-looking difference to keep the last sample of a run with its run
+            if k > 0:
+                db = dv[k-1]
+                if abs(db) > eps:
+                    dir_set = (db > 0)
+            # Fallback: look forward to the next informative change (for first sample of a run)
+            if dir_set is None:
+                j = k
+                while j < n-1:
+                    d = dv[j]
+                    if abs(d) > eps:
+                        dir_set = (d > 0)
+                        break
+                    j += 1
+            # If still None (flat series), keep previous
+            if dir_set is None:
+                dir_set = prev_dir
+            is_charge[k] = dir_set
+            prev_dir = dir_set
 
-    # Optional: merge very short flicker runs into neighbors (min_len heuristic)
-    # Build run-length encoding
-    run_starts = [0]
-    for k in range(1, n):
-        if is_charge[k] != is_charge[k-1]:
-            run_starts.append(k)
-    run_starts.append(n)
-    # Merge runs shorter than 3 samples (or 0.2% of data length, whichever larger)
-    min_len = max(3, int(0.002 * n))
-    if len(run_starts) >= 3:
-        keep_mask = is_charge.copy()
-        new_is_charge = is_charge.copy()
-        for r in range(len(run_starts)-1):
-            a = run_starts[r]
-            b = run_starts[r+1]
-            if (b - a) < min_len:
-                # Prefer to merge into previous run if exists; else next
-                if r > 0:
-                    new_is_charge[a:b] = new_is_charge[a-1]
-                elif r+1 < len(run_starts)-1:
-                    new_is_charge[a:b] = new_is_charge[b]
-        is_charge = new_is_charge
+    # Build run-length encoding and optionally merge very short flicker runs
+    # (Only apply smoothing when using voltage trend detection, not when using explicit Step Type)
+    if step_type_idx is None:
+        # Smoothing logic for voltage-trend-based detection
+        run_starts = [0]
+        for k in range(1, n):
+            if is_charge[k] != is_charge[k-1]:
+                run_starts.append(k)
+        run_starts.append(n)
+        # Merge runs shorter than 3 samples (or 0.2% of data length, whichever larger)
+        min_len = max(3, int(0.002 * n))
+        if len(run_starts) >= 3:
+            keep_mask = is_charge.copy()
+            new_is_charge = is_charge.copy()
+            for r in range(len(run_starts)-1):
+                a = run_starts[r]
+                b = run_starts[r+1]
+                if (b - a) < min_len:
+                    # Prefer to merge into previous run if exists; else next
+                    if r > 0:
+                        new_is_charge[a:b] = new_is_charge[a-1]
+                    elif r+1 < len(run_starts)-1:
+                        new_is_charge[a:b] = new_is_charge[b]
+            is_charge = new_is_charge
 
-    # Recompute runs after smoothing
+    # Compute final run starts for cycle inference
     run_starts = [0]
     for k in range(1, n):
         if is_charge[k] != is_charge[k-1]:
@@ -627,17 +754,19 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
     cap_x = np.nan_to_num(cap_x, nan=0.0)
 
     # --- Cycle numbering ---
-    # Always infer cycles by pairing alternating runs from voltage trend, so:
-    #   if starts with charge: Cycle 1 = first charge + discharge, Cycle 2 = next pair, ...
-    #   if starts with discharge: Cycle 1 = first discharge + charge, ...
-    inferred_cycles = np.ones(n, dtype=int)
-    n_runs = len(run_starts) - 1
-    for r in range(n_runs):
-        a = run_starts[r]
-        b = run_starts[r+1]
-        cyc = (r // 2) + 1
-        inferred_cycles[a:b] = cyc
-    cycles = inferred_cycles
+    # If CSV has a 'Cycle Index' column, use those values; otherwise infer cycles by pairing
+    # alternating charge/discharge runs from voltage trend
+    if cyc_idx is None:
+        # Infer cycles: pair alternating runs so Cycle 1 = first two runs, Cycle 2 = next two, etc.
+        inferred_cycles = np.ones(n, dtype=int)
+        n_runs = len(run_starts) - 1
+        for r in range(n_runs):
+            a = run_starts[r]
+            b = run_starts[r+1]
+            cyc = (r // 2) + 1
+            inferred_cycles[a:b] = cyc
+        cycles = inferred_cycles
+    # else: keep the cycles array as-is (already populated from CSV 'Cycle Index' column)
 
     return cap_x, voltage, cycles, charge_mask, discharge_mask
 
@@ -686,7 +815,7 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
     elif dq_spec_idx is not None:
         use_spec = True
 
-    y_label = 'dQm/dV (mAh g⁻¹ V⁻¹)' if use_spec else 'dQ/dV (mAh V⁻¹)'
+    y_label = r'dQm/dV (mAh g$^{-1}$ V$^{-1}$)' if use_spec else r'dQ/dV (mAh V$^{-1}$)'
     n = len(rows)
     voltage = np.empty(n, dtype=float)
     dqdv = np.empty(n, dtype=float)

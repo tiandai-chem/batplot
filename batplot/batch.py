@@ -184,7 +184,7 @@ def batch_process_ec(directory: str, args):
         supported_ext = {'.mpt', '.csv'}
     elif getattr(args, 'cv', False):
         mode = 'cv'
-        supported_ext = {'.mpt'}
+        supported_ext = {'.mpt', '.txt'}
     elif getattr(args, 'dqdv', False):
         mode = 'dqdv'
         supported_ext = {'.csv'}
@@ -230,11 +230,11 @@ def batch_process_ec(directory: str, args):
                     specific_capacity, voltage, cycle_numbers, charge_mask, discharge_mask = \
                         read_mpt_file(fpath, mode='gc', mass_mg=mass_mg)
                     cap_x = specific_capacity
-                    x_label = 'Specific Capacity (mAh g⁻¹)'
+                    x_label = r'Specific Capacity (mAh g$^{-1}$)'
                 elif ext == '.csv':
                     cap_x, voltage, cycle_numbers, charge_mask, discharge_mask = \
                         read_ec_csv_file(fpath, prefer_specific=True)
-                    x_label = 'Specific Capacity (mAh g⁻¹)'
+                    x_label = r'Specific Capacity (mAh g$^{-1}$)'
                 else:
                     raise ValueError(f"Unsupported file type for GC: {ext}")
                 
@@ -274,10 +274,14 @@ def batch_process_ec(directory: str, args):
             
             # ---- CV Mode ----
             elif mode == 'cv':
-                if ext != '.mpt':
-                    raise ValueError("CV mode requires .mpt file")
+                if ext == '.txt':
+                    from .readers import read_biologic_txt_file
+                    voltage, current, cycles = read_biologic_txt_file(fpath, mode='cv')
+                elif ext == '.mpt':
+                    voltage, current, cycles = read_mpt_file(fpath, mode='cv')
+                else:
+                    raise ValueError("CV mode requires .mpt or .txt file")
                 
-                voltage, current, cycles = read_mpt_file(fpath, mode='cv')
                 cyc_int_raw = np.array(np.rint(cycles), dtype=int)
                 if cyc_int_raw.size:
                     min_c = int(np.min(cyc_int_raw))
@@ -307,7 +311,7 @@ def batch_process_ec(directory: str, args):
                 voltage, dqdv = read_ec_csv_dqdv_file(fpath)
                 ax_b.plot(voltage, dqdv, '-', color='#1f77b4', linewidth=1.5)
                 ax_b.set_xlabel('Voltage (V)')
-                ax_b.set_ylabel('dQ/dV (mAh g⁻¹ V⁻¹)')
+                ax_b.set_ylabel(r'dQ/dV (mAh g$^{-1}$ V$^{-1}$)')
                 ax_b.set_title(f"{fname}")
             
             # ---- CPC Mode ----
@@ -320,7 +324,7 @@ def batch_process_ec(directory: str, args):
                         continue
                     cyc_nums, cap_charge, cap_discharge, eff = \
                         read_mpt_file(fpath, mode='cpc', mass_mg=mass_mg)
-                    x_label = 'Specific Capacity (mAh g⁻¹)'
+                    x_label = r'Specific Capacity (mAh g$^{-1}$)'
                 elif ext == '.csv':
                     # For CSV CPC, read as GC-like data
                     cap_x, voltage, cycle_numbers, charge_mask, discharge_mask = \
@@ -349,7 +353,7 @@ def batch_process_ec(directory: str, args):
                         cyc_nums = np.array([1])
                         cap_charge = np.array([0])
                         cap_discharge = np.array([0])
-                    x_label = 'Specific Capacity (mAh g⁻¹)'
+                    x_label = r'Specific Capacity (mAh g$^{-1}$)'
                 else:
                     raise ValueError(f"Unsupported file type for CPC: {ext}")
                 

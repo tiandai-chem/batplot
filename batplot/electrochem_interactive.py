@@ -633,6 +633,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 'xlabel': ax.get_xlabel(),
                 'ylabel': ax.get_ylabel(),
                 'tick_state': dict(tick_state),
+                'wasd_state': dict(getattr(fig, '_ec_wasd_state', {})) if hasattr(fig, '_ec_wasd_state') else {},
                 'fig_size': list(fig.get_size_inches()),
                 'spines': {name: {
                     'lw': (ax.spines.get(name).get_linewidth() if ax.spines.get(name) else None),
@@ -697,6 +698,12 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             for k,v in st.items():
                 if k in tick_state:
                     tick_state[k] = bool(v)
+            # WASD state
+            wasd_snap = snap.get('wasd_state', {})
+            if wasd_snap:
+                setattr(fig, '_ec_wasd_state', wasd_snap)
+                _sync_tick_state()
+                _apply_wasd()
             _update_tick_visibility()
             # Spines
             for name, spec in snap.get('spines', {}).items():
@@ -1415,9 +1422,6 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         side = {'w':'top','a':'left','s':'bottom','d':'right'}.get(p[0])
                         if side is None or p[1] not in '12345':
                             print(f"Unknown code: {p}"); continue
-                        # Disable a1-a5 commands for EC menu
-                        if p[0] == 'a' and p[1] in '12345':
-                            print(f"Command '{p}' is disabled in EC menu."); continue
                         key = {'1':'spine','2':'ticks','3':'minor','4':'labels','5':'title'}[p[1]]
                         wasd[side][key] = not bool(wasd[side][key])
                         changed = True
@@ -1910,8 +1914,8 @@ def _print_style_snapshot(cfg: Dict):
     
     wasd = cfg.get('wasd_state', {})
     if wasd:
-        print("Per-side (w=top, s=bottom, d=right): spine, major, minor, labels, title")
-        for side_key, side_label in [('top', 'w'), ('bottom', 's'), ('right', 'd')]:
+        print("Per-side (w=top, a=left, s=bottom, d=right): spine, major, minor, labels, title")
+        for side_key, side_label in [('top', 'w'), ('left', 'a'), ('bottom', 's'), ('right', 'd')]:
             s = wasd.get(side_key, {})
             spine_val = _onoff(s.get('spine', False))
             major_val = _onoff(s.get('ticks', False))

@@ -1,5 +1,5 @@
 # batplot User Manual
-**v1.0.18, 2025-01-15**
+**v1.1.1, 2025-01-16**
 
 Batplot is a lightweight CLI tool for plotting XRD, PDF, XAS, electrochemistry, and operando data, featuring interactive and batch modes.
 The electrochemistry and operando plotting functions are inspired by the script written by Amalie, Erlend and Casper.
@@ -62,14 +62,14 @@ batplot file1.xye file2.xye --xaxis 2theta --interactive
 batplot file1.xye:0.25995 file2.qye --stack --interactive
 # Stack two files and open the interactive menu
 
-batplot file1.xye:0.25995 file2.qye --stack --interactive
+batplot file1.xye file2.xye. --wl 1.54 --stack --interactive
 # Stack two files and open the interactive menu
 
 batplot file1.xye:0.25995 file2.qye structure1.cif structure2.cif --stack --interactive
 # Stack two files with reference cif ticks and open the interactive menu
 
 batplot all
-# Plot all supported files in the current folder
+# Save all supported files in the current folder as SVG images
 ```
 
 ---
@@ -89,7 +89,7 @@ batplot all
 
 **dQdV**: Differential capacity analysis (dQ/dV vs. voltage).
 
-**CPC (Chronopotentiometry/Chronoamperometry)**: Time-domain electrochemical measurements.
+**CPC (Capacity Per Cycle)**: Plot charge/discharge capacity and coulombic efficiency vs. cycle number. Supports multiple files with individual color customization.
 
 ### Example Usage
 
@@ -100,13 +100,29 @@ batplot file.csv --gc --interactive
 batplot file.csv --dqdv
 # Plot dQdV curve
 
-batplot file.mpt --cpc --mass 6.2 --interactive
-# Plot CPC from .mpt; capacity calculated using provided mass (mg)
-# For .csv, mass is not required
-
 batplot file.mpt --cv --interactive
 # Plot CV data with full interactive menu support
+
+batplot file1.csv file2.csv file3.mpt --cpc --mass 6.2 --interactive
+# Plot multiple CPC files on same axes with interactive menu
+# Each file can be styled individually (colors)
+# Line styles, fonts, and markers apply globally
+# Note: --mass only required for .mpt files
+
+batplot file.csv --cpc --interactive
+# Plot single CPC file with interactive menu
 ```
+
+### CPC Interactive Menu Features
+
+When using `--cpc --interactive`, you get access to:
+- **Global styling**: Line styles (l), fonts (f), and marker sizes (m) apply to all curves
+- **Individual colors**: Use `c` command to select specific files by number and assign colors
+  - Charge color is set directly; discharge color auto-generates a similar shade
+  - Efficiency triangles can be colored independently
+- **File visibility**: Toggle visibility of individual files with `v` command
+- **Clean export**: File numbering is removed from legend labels when exporting figures
+- **Session save**: Save complete project state including all files and styles with `s` command
 
 ### Batch Mode
 

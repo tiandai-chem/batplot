@@ -23,6 +23,36 @@ from .ui import (
 from .utils import _confirm_overwrite
 
 
+def _generate_similar_color(base_color):
+    """Generate a similar but distinguishable color for discharge from charge color."""
+    try:
+        from matplotlib.colors import to_rgb, rgb_to_hsv, hsv_to_rgb
+        import numpy as np
+        
+        # Convert to RGB
+        rgb = to_rgb(base_color)
+        # Convert to HSV
+        hsv = rgb_to_hsv(rgb)
+        
+        # Adjust hue slightly (+/- 15 degrees) and reduce saturation/brightness slightly
+        h, s, v = hsv
+        h_new = (h + 0.04) % 1.0  # Shift hue slightly
+        s_new = max(0.3, s * 0.85)  # Reduce saturation
+        v_new = max(0.4, v * 0.9)  # Slightly darker
+        
+        # Convert back to RGB
+        rgb_new = hsv_to_rgb([h_new, s_new, v_new])
+        return rgb_new
+    except Exception:
+        # Fallback to a darker version
+        try:
+            from matplotlib.colors import to_rgb
+            rgb = to_rgb(base_color)
+            return tuple(max(0, c * 0.7) for c in rgb)
+        except Exception:
+            return base_color
+
+
 def _print_menu():
     col1 = [
         " f: font",
@@ -33,6 +63,7 @@ def _print_menu():
         " t: toggle axes",
         " h: legend",
         " g: size",
+        " v: show/hide files",
     ]
     col2 = [
         "r: rename titles",
@@ -60,7 +91,46 @@ def _print_menu():
         print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
 
 
-def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff) -> Dict:
+def _get_current_file_artists(file_data, current_idx):
+    """Get the scatter artists for the currently selected file."""
+    if not file_data or current_idx >= len(file_data):
+        return None, None, None
+    file_info = file_data[current_idx]
+    return file_info['sc_charge'], file_info['sc_discharge'], file_info['sc_eff']
+
+
+def _print_file_list(file_data, current_idx):
+    """Print list of files with current selection highlighted."""
+    print("\n=== Files ===")
+    for i, f in enumerate(file_data):
+        marker = "→" if i == current_idx else " "
+        vis = "✓" if f.get('visible', True) else "✗"
+        print(f"{marker} {i+1}. [{vis}] {f['filename']}")
+    print()
+
+
+def _rebuild_legend(ax, ax2, file_data):
+    """Rebuild legend from all visible files."""
+    try:
+        h1, l1 = ax.get_legend_handles_labels()
+        h2, l2 = ax2.get_legend_handles_labels()
+        # Filter to only visible items
+        h_all, l_all = [], []
+        for h, l in zip(h1 + h2, l1 + l2):
+            if h.get_visible():
+                h_all.append(h)
+                l_all.append(l)
+        if h_all:
+            ax.legend(h_all, l_all, loc='best', borderaxespad=1.0)
+        else:
+            leg = ax.get_legend()
+            if leg:
+                leg.set_visible(False)
+    except Exception:
+        pass
+
+
+def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=None) -> Dict:
     try:
         fig_w, fig_h = map(float, fig.get_size_inches())
     except Exception:
@@ -164,6 +234,18 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff) -> Dict:
         },
     }
 
+    # Capture legend state
+    legend_visible = False
+    legend_xy_in = None
+    try:
+        leg = ax.get_legend()
+        if leg is not None:
+            legend_visible = leg.get_visible()
+            # Get legend position stored in figure attribute
+            legend_xy_in = getattr(fig, '_cpc_legend_xy_in', None)
+    except Exception:
+        pass
+
     cfg = {
         'kind': 'cpc_style',
         'version': 2,
@@ -172,6 +254,10 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff) -> Dict:
             'frame_size': [frame_w_in, frame_h_in]
         },
         'font': {'family': fam0, 'size': fsize},
+        'legend': {
+            'visible': legend_visible,
+            'position_inches': legend_xy_in  # [x, y] offset from canvas center in inches
+        },
         'ticks': {
             'visibility': tick_vis,
             'widths': {
@@ -213,10 +299,35 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff) -> Dict:
             }
         }
     }
+    
+    # Add multi-file data if available
+    if file_data and isinstance(file_data, list) and len(file_data) > 0:
+        multi_files = []
+        for f in file_data:
+            file_info = {
+                'filename': f.get('filename', 'unknown'),
+                'visible': f.get('visible', True),
+                'charge_color': _color_of(f.get('sc_charge')),
+                'discharge_color': _color_of(f.get('sc_discharge')),
+                'efficiency_color': _color_of(f.get('sc_eff')),
+            }
+            multi_files.append(file_info)
+        cfg['multi_files'] = multi_files
+    
     return cfg
 
 
-def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict):
+def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict, file_data=None):
+    """Apply style configuration to CPC plot.
+    
+    Args:
+        fig, ax, ax2: Matplotlib figure and axes
+        sc_charge, sc_discharge, sc_eff: Primary/selected file scatter artists
+        cfg: Style configuration dict
+        file_data: Optional list of file dicts for multi-file mode
+    """
+    is_multi_file = file_data is not None and len(file_data) > 1
+    
     try:
         font = cfg.get('font', {})
         fam = font.get('family')
@@ -296,42 +407,104 @@ def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict):
     try:
         s = cfg.get('series', {})
         ch = s.get('charge', {})
-        if ch:
-            if ch.get('color') is not None:
-                sc_charge.set_color(ch['color'])
-            if ch.get('markersize') is not None and hasattr(sc_charge, 'set_sizes'):
-                sc_charge.set_sizes([float(ch['markersize'])])
-            if ch.get('alpha') is not None:
-                sc_charge.set_alpha(float(ch['alpha']))
         dh = s.get('discharge', {})
-        if dh:
-            if dh.get('color') is not None:
-                sc_discharge.set_color(dh['color'])
-            if dh.get('markersize') is not None and hasattr(sc_discharge, 'set_sizes'):
-                sc_discharge.set_sizes([float(dh['markersize'])])
-            if dh.get('alpha') is not None:
-                sc_discharge.set_alpha(float(dh['alpha']))
         ef = s.get('efficiency', {})
-        if ef:
-            if ef.get('color') is not None:
+        
+        # Apply marker sizes and alpha globally to all files in multi-file mode
+        if is_multi_file:
+            for f in file_data:
+                # Marker sizes (global)
+                if ch.get('markersize') is not None and hasattr(f['sc_charge'], 'set_sizes'):
+                    f['sc_charge'].set_sizes([float(ch['markersize'])])
+                if dh.get('markersize') is not None and hasattr(f['sc_discharge'], 'set_sizes'):
+                    f['sc_discharge'].set_sizes([float(dh['markersize'])])
+                if ef.get('markersize') is not None and hasattr(f['sc_eff'], 'set_sizes'):
+                    f['sc_eff'].set_sizes([float(ef['markersize'])])
+                
+                # Alpha (global)
+                if ch.get('alpha') is not None:
+                    f['sc_charge'].set_alpha(float(ch['alpha']))
+                if dh.get('alpha') is not None:
+                    f['sc_discharge'].set_alpha(float(dh['alpha']))
+                if ef.get('alpha') is not None:
+                    f['sc_eff'].set_alpha(float(ef['alpha']))
+            
+            # Efficiency visibility (global)
+            if 'visible' in ef:
+                eff_vis = bool(ef['visible'])
+                for f in file_data:
+                    try:
+                        f['sc_eff'].set_visible(eff_vis)
+                    except Exception:
+                        pass
                 try:
-                    sc_eff.set_color(ef['color'])
+                    ax2.yaxis.label.set_visible(eff_vis)
                 except Exception:
                     pass
-            if ef.get('markersize') is not None and hasattr(sc_eff, 'set_sizes'):
-                sc_eff.set_sizes([float(ef['markersize'])])
-            if ef.get('alpha') is not None:
-                sc_eff.set_alpha(float(ef['alpha']))
-            if 'visible' in ef:
-                try:
-                    sc_eff.set_visible(bool(ef['visible']))
-                    # Keep right-axis title visibility consistent with efficiency visibility
+        else:
+            # Single file mode: apply to provided artists only
+            if ch:
+                if ch.get('color') is not None:
+                    sc_charge.set_color(ch['color'])
+                if ch.get('markersize') is not None and hasattr(sc_charge, 'set_sizes'):
+                    sc_charge.set_sizes([float(ch['markersize'])])
+                if ch.get('alpha') is not None:
+                    sc_charge.set_alpha(float(ch['alpha']))
+            if dh:
+                if dh.get('color') is not None:
+                    sc_discharge.set_color(dh['color'])
+                if dh.get('markersize') is not None and hasattr(sc_discharge, 'set_sizes'):
+                    sc_discharge.set_sizes([float(dh['markersize'])])
+                if dh.get('alpha') is not None:
+                    sc_discharge.set_alpha(float(dh['alpha']))
+            if ef:
+                if ef.get('color') is not None:
                     try:
+                        sc_eff.set_color(ef['color'])
+                    except Exception:
+                        pass
+                if ef.get('markersize') is not None and hasattr(sc_eff, 'set_sizes'):
+                    sc_eff.set_sizes([float(ef['markersize'])])
+                if ef.get('alpha') is not None:
+                    sc_eff.set_alpha(float(ef['alpha']))
+                if 'visible' in ef:
+                    try:
+                        sc_eff.set_visible(bool(ef['visible']))
                         ax2.yaxis.label.set_visible(bool(ef['visible']))
                     except Exception:
                         pass
-                except Exception:
-                    pass
+    except Exception:
+        pass
+    # Apply legend state (h command)
+    try:
+        leg_cfg = cfg.get('legend', {})
+        if leg_cfg:
+            leg_visible = leg_cfg.get('visible', True)
+            leg_xy_in = leg_cfg.get('position_inches')
+            
+            # Store position for later use
+            if leg_xy_in is not None:
+                fig._cpc_legend_xy_in = leg_xy_in
+            
+            leg = ax.get_legend()
+            if leg is not None:
+                leg.set_visible(leg_visible)
+                
+                # Reposition legend if position is stored
+                if leg_visible and leg_xy_in is not None:
+                    try:
+                        fig_w, fig_h = fig.get_size_inches()
+                        cx, cy = fig_w / 2.0, fig_h / 2.0
+                        x_in, y_in = leg_xy_in
+                        fx = (cx + x_in) / fig_w
+                        fy = (cy + y_in) / fig_h
+                        
+                        h1, l1 = ax.get_legend_handles_labels()
+                        h2, l2 = ax2.get_legend_handles_labels()
+                        ax.legend(h1 + h2, l1 + l2, loc='center', bbox_to_anchor=(fx, fy), 
+                                 bbox_transform=fig.transFigure, borderaxespad=1.0)
+                    except Exception:
+                        pass
     except Exception:
         pass
     # Apply tick visibility/widths and spines
@@ -427,7 +600,28 @@ def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict):
         pass
 
 
-def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
+def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=None):
+    """CPC interactive menu with optional multi-file support.
+    
+    Args:
+        fig, ax, ax2: Matplotlib figure and axes
+        sc_charge, sc_discharge, sc_eff: Primary file scatter artists (for backward compatibility)
+        file_data: Optional list of dicts with file info and scatter artists for multi-file mode
+    """
+    # Multi-file mode setup
+    is_multi_file = file_data is not None and len(file_data) > 1
+    if file_data is None:
+        # Backward compatibility: create file_data from single file
+        file_data = [{
+            'filename': 'Data',
+            'sc_charge': sc_charge,
+            'sc_discharge': sc_discharge,
+            'sc_eff': sc_eff,
+            'visible': True
+        }]
+    
+    current_file_idx = 0  # Index of currently selected file for editing
+    
     # Tick state for CPC (primary ax + twin right ax2)
     tick_state = {
         'bx': True,  # bottom x
@@ -445,7 +639,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
 
     def push_state(note: str = ""):
         try:
-            snap = _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff)
+            snap = _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data)
             snap['__note__'] = note
             # Also persist current tick_state explicitly
             snap.setdefault('ticks', {}).setdefault('visibility', dict(tick_state))
@@ -461,7 +655,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
             return
         cfg = state_history.pop()
         try:
-            _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg)
+            _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg, file_data)
             # Restore local tick_state from cfg
             vis = (cfg.get('ticks') or {}).get('visibility') or {}
             for k, v in vis.items():
@@ -547,10 +741,71 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
         pass
 
     _print_menu()
+    if is_multi_file:
+        print(f"\n[Multi-file mode: {len(file_data)} files loaded]")
+        _print_file_list(file_data, current_file_idx)
+    
     while True:
+        # Update current file's scatter artists for commands that need them
+        sc_charge, sc_discharge, sc_eff = _get_current_file_artists(file_data, current_file_idx)
+        
         key = input("Press a key: ").strip().lower()
         if not key:
             continue
+        
+        # File visibility toggle command (v)
+        if key == 'v':
+            try:
+                if is_multi_file:
+                    _print_file_list(file_data, current_file_idx)
+                    choice = input(f"Toggle visibility for file (1-{len(file_data)}), 'a' for all, or q=cancel: ").strip()
+                    if choice.lower() == 'q':
+                        _print_menu()
+                        _print_file_list(file_data, current_file_idx)
+                        continue
+                    
+                    push_state("visibility")
+                    if choice.lower() == 'a':
+                        # Toggle all
+                        any_visible = any(f.get('visible', True) for f in file_data)
+                        new_state = not any_visible
+                        for f in file_data:
+                            f['visible'] = new_state
+                            f['sc_charge'].set_visible(new_state)
+                            f['sc_discharge'].set_visible(new_state)
+                            f['sc_eff'].set_visible(new_state)
+                    else:
+                        idx = int(choice) - 1
+                        if 0 <= idx < len(file_data):
+                            f = file_data[idx]
+                            new_vis = not f.get('visible', True)
+                            f['visible'] = new_vis
+                            f['sc_charge'].set_visible(new_vis)
+                            f['sc_discharge'].set_visible(new_vis)
+                            f['sc_eff'].set_visible(new_vis)
+                        else:
+                            print("Invalid file number.")
+                else:
+                    # Single file mode: toggle efficiency
+                    push_state("visibility-eff")
+                    vis = sc_eff.get_visible()
+                    sc_eff.set_visible(not vis)
+                    try:
+                        ax2.yaxis.label.set_visible(not vis)
+                    except Exception:
+                        pass
+                
+                _rebuild_legend(ax, ax2, file_data)
+                fig.canvas.draw_idle()
+            except ValueError:
+                print("Invalid input.")
+            except Exception as e:
+                print(f"Visibility toggle failed: {e}")
+            _print_menu()
+            if is_multi_file:
+                _print_file_list(file_data, current_file_idx)
+            continue
+        
         if key == 'q':
             try:
                 confirm = input("Quit CPC interactive? Remember to save! Quit now? (y/n): ").strip().lower()
@@ -567,54 +822,273 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
             # Colors submenu: ly (left Y series) and ry (right Y efficiency)
             try:
                 while True:
-                    print("Colors: ly=left Y (capacity dots), ry=right Y (efficiency triangles), q=back")
+                    print("\nColors: ly=capacity curves, ry=efficiency triangles, q=back")
                     sub = input("Colors> ").strip().lower()
                     if not sub:
                         continue
                     if sub == 'q':
                         break
                     if sub == 'ly':
-                        push_state("colors-ly")
-                        spec = input("Enter colors: 'c:<color> d:<color>' or 'r' for random (q=cancel): ").strip()
-                        if not spec or spec.lower() == 'q':
-                            continue
-                        if spec.strip().lower() == 'r':
-                            palette = ['#1f77b4','#ff7f0e','#2ca02c','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf']
+                        if is_multi_file:
+                            # Show file list for selection
+                            print("\nSelect curve to color:")
+                            for i, f in enumerate(file_data, 1):
+                                vis_mark = "●" if f.get('visible', True) else "○"
+                                print(f"  {i}. {vis_mark} {f['filename']}")
+                            choice = input("Enter curve number (1-{}) or 'a' for all, q=cancel: ".format(len(file_data))).strip()
+                            if not choice or choice.lower() == 'q':
+                                continue
+                            
+                            push_state("colors-ly")
+                            if choice.lower() == 'a':
+                                # Apply to all files
+                                print("\nCharge color palettes (discharge will be auto-generated):")
+                                print("  1. Reds: #d62728, #c62828, #b71c1c, #8b0000, #a30000")
+                                print("  2. Oranges: #ff7f0e, #ff6f00, #ff5722, #f4511e, #e64a19")
+                                print("  3. Pinks/Magentas: #e377c2, #d81b60, #c2185b, #ad1457, #880e4f")
+                                print("  4. Purples: #9c27b0, #8e24aa, #7b1fa2, #6a1b9a, #4a148c")
+                                print("  5. Deep oranges/reds: #d84315, #bf360c, #c2185b, #d32f2f, #c62828")
+                                spec = input("Enter color (name/hex), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                                if not spec or spec.lower() == 'q':
+                                    continue
+                                for i, f in enumerate(file_data):
+                                    if spec.lower() == 'r':
+                                        # Use Viridis colormap
+                                        import matplotlib.cm as cm
+                                        import matplotlib.colors as mcolors
+                                        viridis = cm.get_cmap('viridis', 10)
+                                        charge_col = mcolors.rgb2hex(viridis(_random.random())[:3])
+
+                                    elif spec in ['1', '2', '3', '4', '5']:
+                                        # Use selected palette
+                                        charge_palettes = [
+                                            ['#d62728', '#c62828', '#b71c1c', '#8b0000', '#a30000'],
+                                            ['#ff7f0e', '#ff6f00', '#ff5722', '#f4511e', '#e64a19'],
+                                            ['#e377c2', '#d81b60', '#c2185b', '#ad1457', '#880e4f'],
+                                            ['#9c27b0', '#8e24aa', '#7b1fa2', '#6a1b9a', '#4a148c'],
+                                            ['#d84315', '#bf360c', '#c2185b', '#d32f2f', '#c62828']
+                                        ]
+                                        palette = charge_palettes[int(spec) - 1]
+                                        charge_col = palette[i % len(palette)]
+                                    else:
+                                        charge_col = spec
+                                    discharge_col = _generate_similar_color(charge_col)
+                                    try:
+                                        f['sc_charge'].set_color(charge_col)
+                                        f['sc_discharge'].set_color(discharge_col)
+                                        f['color'] = charge_col
+                                    except Exception:
+                                        pass
+                            else:
+                                # Apply to selected file
+                                try:
+                                    idx = int(choice) - 1
+                                    if 0 <= idx < len(file_data):
+                                        print("\nCharge color palettes (discharge will be auto-generated):")
+                                        print("  1. Reds: #d62728, #c62828, #b71c1c, #8b0000, #a30000")
+                                        print("  2. Oranges: #ff7f0e, #ff6f00, #ff5722, #f4511e, #e64a19")
+                                        print("  3. Pinks/Magentas: #e377c2, #d81b60, #c2185b, #ad1457, #880e4f")
+                                        print("  4. Purples: #9c27b0, #8e24aa, #7b1fa2, #6a1b9a, #4a148c")
+                                        print("  5. Deep oranges/reds: #d84315, #bf360c, #c2185b, #d32f2f, #c62828")
+                                        spec = input("Enter color (name/hex), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                                        if not spec or spec.lower() == 'q':
+                                            continue
+                                        if spec.lower() == 'r':
+                                            # Use Viridis colormap
+                                            import matplotlib.cm as cm
+                                            import matplotlib.colors as mcolors
+                                            viridis = cm.get_cmap('viridis', 10)
+                                            charge_col = mcolors.rgb2hex(viridis(_random.random())[:3])
+                                        elif spec in ['1', '2', '3', '4', '5']:
+                                            # Use selected palette
+                                            charge_palettes = [
+                                                ['#d62728', '#c62828', '#b71c1c', '#8b0000', '#a30000'],
+                                                ['#ff7f0e', '#ff6f00', '#ff5722', '#f4511e', '#e64a19'],
+                                                ['#e377c2', '#d81b60', '#c2185b', '#ad1457', '#880e4f'],
+                                                ['#9c27b0', '#8e24aa', '#7b1fa2', '#6a1b9a', '#4a148c'],
+                                                ['#d84315', '#bf360c', '#c2185b', '#d32f2f', '#c62828']
+                                            ]
+                                            palette = charge_palettes[int(spec) - 1]
+                                            charge_col = palette[0]  # Use first color from palette for single file
+                                        else:
+                                            charge_col = spec
+                                        discharge_col = _generate_similar_color(charge_col)
+                                        try:
+                                            file_data[idx]['sc_charge'].set_color(charge_col)
+                                            file_data[idx]['sc_discharge'].set_color(discharge_col)
+                                            file_data[idx]['color'] = charge_col
+                                        except Exception:
+                                            pass
+                                    else:
+                                        print("Invalid file number.")
+                                except ValueError:
+                                    print("Invalid input.")
+                        else:
+                            # Single file mode
+                            push_state("colors-ly")
+                            print("\nCharge color palettes (discharge will be auto-generated):")
+                            print("  1. Reds: #d62728, #c62828, #b71c1c, #8b0000, #a30000")
+                            print("  2. Oranges: #ff7f0e, #ff6f00, #ff5722, #f4511e, #e64a19")
+                            print("  3. Pinks/Magentas: #e377c2, #d81b60, #c2185b, #ad1457, #880e4f")
+                            print("  4. Purples: #9c27b0, #8e24aa, #7b1fa2, #6a1b9a, #4a148c")
+                            print("  5. Deep oranges/reds: #d84315, #bf360c, #c2185b, #d32f2f, #c62828")
+                            spec = input("Enter color (name/hex), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                            if not spec or spec.lower() == 'q':
+                                continue
+                            if spec.strip().lower() == 'r':
+                                # Use Viridis colormap
+                                import matplotlib.cm as cm
+                                import matplotlib.colors as mcolors
+                                viridis = cm.get_cmap('viridis', 10)
+                                charge_col = mcolors.rgb2hex(viridis(_random.random())[:3])
+                            elif spec in ['1', '2', '3', '4', '5']:
+                                # Use selected palette
+                                charge_palettes = [
+                                    ['#d62728', '#c62828', '#b71c1c', '#8b0000', '#a30000'],
+                                    ['#ff7f0e', '#ff6f00', '#ff5722', '#f4511e', '#e64a19'],
+                                    ['#e377c2', '#d81b60', '#c2185b', '#ad1457', '#880e4f'],
+                                    ['#9c27b0', '#8e24aa', '#7b1fa2', '#6a1b9a', '#4a148c'],
+                                    ['#d84315', '#bf360c', '#c2185b', '#d32f2f', '#c62828']
+                                ]
+                                palette = charge_palettes[int(spec) - 1]
+                                charge_col = palette[0]  # Use first color from palette
+                            else:
+                                charge_col = spec
+                            discharge_col = _generate_similar_color(charge_col)
                             try:
-                                sc_charge.set_color(_random.choice(palette))
-                                sc_discharge.set_color(_random.choice(palette))
+                                sc_charge.set_color(charge_col)
+                                sc_discharge.set_color(discharge_col)
                             except Exception:
                                 pass
-                        else:
-                            parts = spec.split()
-                            for p in parts:
-                                if ':' not in p:
-                                    continue
-                                role, col = p.split(':', 1)
-                                role = role.strip().lower(); col = col.strip()
-                                try:
-                                    if role == 'c':
-                                        sc_charge.set_color(col)
-                                    elif role == 'd':
-                                        sc_discharge.set_color(col)
-                                except Exception:
-                                    print(f"Bad color token: {p}")
                         try:
+                            _rebuild_legend(ax, ax2, file_data)
                             fig.canvas.draw_idle()
                         except Exception:
                             pass
                     elif sub == 'ry':
                         push_state("colors-ry")
-                        val = input("Enter color for efficiency triangles (hex/name) or 'r' random (q=cancel): ").strip()
-                        if not val or val.lower() == 'q':
-                            continue
-                        if val.lower() == 'r':
-                            palette = ['#2ca02c','#1f77b4','#ff7f0e','#d62728','#9467bd','#8c564b','#e377c2','#7f7f7f','#bcbd22','#17becf']
-                            col = _random.choice(palette)
+                        if is_multi_file:
+                            # Show file list for efficiency triangle selection
+                            print("\nSelect curve's efficiency to color:")
+                            for i, f in enumerate(file_data, 1):
+                                vis_mark = "●" if f.get('visible', True) else "○"
+                                print(f"  {i}. {vis_mark} {f['filename']}")
+                            choice = input("Enter curve number (1-{}) or 'a' for all, q=cancel: ".format(len(file_data))).strip()
+                            if not choice or choice.lower() == 'q':
+                                continue
+                            
+                            if choice.lower() == 'a':
+                                print("\nEfficiency color palettes:")
+                                print("  1. Blues: #1f77b4, #1976d2, #1565c0, #0d47a1, #01579b")
+                                print("  2. Cyans/Teals: #17becf, #00acc1, #0097a7, #00838f, #006064")
+                                print("  3. Purples/Indigos: #9467bd, #5e35b1, #512da8, #4527a0, #311b92")
+                                print("  4. Deep blues: #2196f3, #1e88e5, #1976d2, #1565c0, #0d47a1")
+                                print("  5. Dark cyans/purples: #0097a7, #00838f, #006064, #5e35b1, #4527a0")
+                                val = input("Enter color (hex/name), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                                if not val or val.lower() == 'q':
+                                    continue
+                                for i, f in enumerate(file_data):
+                                    if val.lower() == 'r':
+                                        # Use Plasma colormap
+                                        import matplotlib.cm as cm
+                                        import matplotlib.colors as mcolors
+                                        plasma = cm.get_cmap('plasma', 10)
+                                        col = mcolors.rgb2hex(plasma(_random.random())[:3])
+                                    elif val in ['1', '2', '3', '4', '5']:
+                                        # Use selected palette
+                                        efficiency_palettes = [
+                                            ['#1f77b4', '#1976d2', '#1565c0', '#0d47a1', '#01579b'],
+                                            ['#17becf', '#00acc1', '#0097a7', '#00838f', '#006064'],
+                                            ['#9467bd', '#5e35b1', '#512da8', '#4527a0', '#311b92'],
+                                            ['#2196f3', '#1e88e5', '#1976d2', '#1565c0', '#0d47a1'],
+                                            ['#0097a7', '#00838f', '#006064', '#5e35b1', '#4527a0']
+                                        ]
+                                        palette = efficiency_palettes[int(val) - 1]
+                                        col = palette[i % len(palette)]
+                                    else:
+                                        col = val
+                                    try:
+                                        f['sc_eff'].set_color(col)
+                                        f['eff_color'] = col  # Store efficiency color
+                                    except Exception:
+                                        pass
+                            else:
+                                try:
+                                    idx = int(choice) - 1
+                                    if 0 <= idx < len(file_data):
+                                        print("\nEfficiency color palettes:")
+                                        print("  1. Blues: #1f77b4, #1976d2, #1565c0, #0d47a1, #01579b")
+                                        print("  2. Cyans/Teals: #17becf, #00acc1, #0097a7, #00838f, #006064")
+                                        print("  3. Purples/Indigos: #9467bd, #5e35b1, #512da8, #4527a0, #311b92")
+                                        print("  4. Deep blues: #2196f3, #1e88e5, #1976d2, #1565c0, #0d47a1")
+                                        print("  5. Dark cyans/purples: #0097a7, #00838f, #006064, #5e35b1, #4527a0")
+                                        val = input("Enter color (hex/name), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                                        if not val or val.lower() == 'q':
+                                            continue
+                                        if val.lower() == 'r':
+                                            # Use Plasma colormap
+                                            import matplotlib.cm as cm
+                                            import matplotlib.colors as mcolors
+                                            plasma = cm.get_cmap('plasma', 10)
+                                            col = mcolors.rgb2hex(plasma(_random.random())[:3])
+                                        elif val in ['1', '2', '3', '4', '5']:
+                                            # Use selected palette
+                                            efficiency_palettes = [
+                                                ['#1f77b4', '#1976d2', '#1565c0', '#0d47a1', '#01579b'],
+                                                ['#17becf', '#00acc1', '#0097a7', '#00838f', '#006064'],
+                                                ['#9467bd', '#5e35b1', '#512da8', '#4527a0', '#311b92'],
+                                                ['#2196f3', '#1e88e5', '#1976d2', '#1565c0', '#0d47a1'],
+                                                ['#0097a7', '#00838f', '#006064', '#5e35b1', '#4527a0']
+                                            ]
+                                            palette = efficiency_palettes[int(val) - 1]
+                                            col = palette[0]  # Use first color from palette for single file
+                                        else:
+                                            col = val
+                                        try:
+                                            file_data[idx]['sc_eff'].set_color(col)
+                                            file_data[idx]['eff_color'] = col  # Store efficiency color
+                                        except Exception:
+                                            pass
+                                    else:
+                                        print("Invalid file number.")
+                                except ValueError:
+                                    print("Invalid input.")
                         else:
-                            col = val
+                            # Single file mode
+                            print("\nEfficiency color palettes:")
+                            print("  1. Blues: #1f77b4, #1976d2, #1565c0, #0d47a1, #01579b")
+                            print("  2. Cyans/Teals: #17becf, #00acc1, #0097a7, #00838f, #006064")
+                            print("  3. Purples/Indigos: #9467bd, #5e35b1, #512da8, #4527a0, #311b92")
+                            print("  4. Deep blues: #2196f3, #1e88e5, #1976d2, #1565c0, #0d47a1")
+                            print("  5. Dark cyans/purples: #0097a7, #00838f, #006064, #5e35b1, #4527a0")
+                            val = input("Enter color (hex/name), palette number (1-5), or 'r' for random (q=cancel): ").strip()
+                            if not val or val.lower() == 'q':
+                                continue
+                            if val.lower() == 'r':
+                                # Use Plasma colormap
+                                import matplotlib.cm as cm
+                                import matplotlib.colors as mcolors
+                                plasma = cm.get_cmap('plasma', 10)
+                                col = mcolors.rgb2hex(plasma(_random.random())[:3])
+                            elif val in ['1', '2', '3', '4', '5']:
+                                # Use selected palette
+                                efficiency_palettes = [
+                                    ['#1f77b4', '#1976d2', '#1565c0', '#0d47a1', '#01579b'],
+                                    ['#17becf', '#00acc1', '#0097a7', '#00838f', '#006064'],
+                                    ['#9467bd', '#5e35b1', '#512da8', '#4527a0', '#311b92'],
+                                    ['#2196f3', '#1e88e5', '#1976d2', '#1565c0', '#0d47a1'],
+                                    ['#0097a7', '#00838f', '#006064', '#5e35b1', '#4527a0']
+                                ]
+                                palette = efficiency_palettes[int(val) - 1]
+                                col = palette[0]  # Use first color from palette
+                            else:
+                                col = val
+                            try:
+                                sc_eff.set_color(col)
+                            except Exception:
+                                pass
                         try:
-                            sc_eff.set_color(col)
+                            _rebuild_legend(ax, ax2, file_data)
                             fig.canvas.draw_idle()
                         except Exception:
                             pass
@@ -622,7 +1096,10 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
                         print("Unknown option.")
             except Exception as e:
                 print(f"Error in colors menu: {e}")
-            _print_menu(); continue
+            _print_menu()
+            if is_multi_file:
+                _print_file_list(file_data, current_file_idx)
+            continue
         elif key == 'e':
             try:
                 fname = input("Export filename (default .svg if no extension, q=cancel): ").strip()
@@ -633,8 +1110,39 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
                     fname = fname + '.svg'
                 target = _confirm_overwrite(fname)
                 if target:
+                    # Remove numbering from legend labels before export
+                    original_labels = {}
+                    if is_multi_file:
+                        try:
+                            for i, f in enumerate(file_data, 1):
+                                # Store original labels
+                                original_labels[f['sc_charge']] = f['sc_charge'].get_label()
+                                original_labels[f['sc_discharge']] = f['sc_discharge'].get_label()
+                                original_labels[f['sc_eff']] = f['sc_eff'].get_label()
+                                
+                                # Remove "N. " prefix from labels
+                                base_label = f['filename']
+                                f['sc_charge'].set_label(f'{base_label} charge')
+                                f['sc_discharge'].set_label(f'{base_label} discharge')
+                                f['sc_eff'].set_label(f'{base_label} efficiency')
+                            
+                            # Rebuild legend without numbers
+                            _rebuild_legend(ax, ax2, file_data)
+                        except Exception:
+                            pass
+                    
+                    # Export the figure
                     fig.savefig(target, bbox_inches='tight')
                     print(f"Exported figure to {target}")
+                    
+                    # Restore original labels
+                    if is_multi_file and original_labels:
+                        try:
+                            for artist, label in original_labels.items():
+                                artist.set_label(label)
+                            _rebuild_legend(ax, ax2, file_data)
+                        except Exception:
+                            pass
             except Exception as e:
                 print(f"Export failed: {e}")
             _print_menu(); continue
@@ -675,13 +1183,13 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
                         yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
                         if yn != 'y':
                             _print_menu(); continue
-                dump_cpc_session(target, fig=fig, ax=ax, ax2=ax2, sc_charge=sc_charge, sc_discharge=sc_discharge, sc_eff=sc_eff, skip_confirm=True)
+                dump_cpc_session(target, fig=fig, ax=ax, ax2=ax2, sc_charge=sc_charge, sc_discharge=sc_discharge, sc_eff=sc_eff, file_data=file_data, skip_confirm=True)
             except Exception as e:
                 print(f"Save failed: {e}")
             _print_menu(); continue
         elif key == 'p':
             try:
-                snap = _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff)
+                snap = _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data)
                 print("\n--- CPC Style (Styles column only) ---")
                 
                 # Figure size (g command)
@@ -712,12 +1220,41 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
                 print(f"             ly_major={ticks.get('ly_major_width')}, ly_minor={ticks.get('ly_minor_width')}")
                 print(f"             ry_major={ticks.get('ry_major_width')}, ry_minor={ticks.get('ry_minor_width')}")
                 
-                # Marker sizes (m command) and Colors (c command)
+                # Multi-file colors (c command) - if available
+                multi_files = snap.get('multi_files', [])
+                if multi_files:
+                    print("\nMulti-file colors:")
+                    for i, finfo in enumerate(multi_files, 1):
+                        vis_mark = "●" if finfo.get('visible', True) else "○"
+                        fname = finfo.get('filename', 'unknown')
+                        ch_col = finfo.get('charge_color', 'N/A')
+                        dh_col = finfo.get('discharge_color', 'N/A')
+                        ef_col = finfo.get('efficiency_color', 'N/A')
+                        print(f"  {i}. {vis_mark} {fname}")
+                        print(f"     charge={ch_col}, discharge={dh_col}, efficiency={ef_col}")
+                
+                # Marker sizes (m command) and Colors (c command) for single-file or default
                 s = snap.get('series', {})
                 ch = s.get('charge', {}); dh = s.get('discharge', {}); ef = s.get('efficiency', {})
-                print(f"Charge: color={ch.get('color')}, markersize={ch.get('markersize')}, alpha={ch.get('alpha')}")
-                print(f"Discharge: color={dh.get('color')}, markersize={dh.get('markersize')}, alpha={dh.get('alpha')}")
-                print(f"Efficiency: color={ef.get('color')}, markersize={ef.get('markersize')}, alpha={ef.get('alpha')}, visible={ef.get('visible')}")
+                if not multi_files:
+                    # Only show single-file series info if not multi-file
+                    print(f"Charge: color={ch.get('color')}, markersize={ch.get('markersize')}, alpha={ch.get('alpha')}")
+                    print(f"Discharge: color={dh.get('color')}, markersize={dh.get('markersize')}, alpha={dh.get('alpha')}")
+                    print(f"Efficiency: color={ef.get('color')}, markersize={ef.get('markersize')}, alpha={ef.get('alpha')}, visible={ef.get('visible')}")
+                else:
+                    # Show marker sizes (common across all files in multi-mode)
+                    print(f"\nMarker sizes (all files): charge={ch.get('markersize')}, discharge={dh.get('markersize')}, efficiency={ef.get('markersize')}")
+                    print(f"Alpha (all files): charge={ch.get('alpha')}, discharge={dh.get('alpha')}, efficiency={ef.get('alpha')}")
+                    print(f"Efficiency visible: {ef.get('visible')}")
+                
+                # Legend (h command)
+                leg_cfg = snap.get('legend', {})
+                leg_vis = leg_cfg.get('visible', False)
+                leg_pos = leg_cfg.get('position_inches')
+                if leg_pos:
+                    print(f"Legend: visible={leg_vis}, position (inches from center)=({leg_pos[0]:.3f}, {leg_pos[1]:.3f})")
+                else:
+                    print(f"Legend: visible={leg_vis}, position=auto")
                 
                 # Toggle axes (t command) - Per-side matrix (20 parameters)
                 def _onoff(v):
@@ -813,7 +1350,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff):
                     cfg = json.load(f)
                 if not isinstance(cfg, dict) or cfg.get('kind') != 'cpc_style':
                     print("Not a CPC style file."); _print_menu(); continue
-                _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg)
+                _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg, file_data)
             except Exception as e:
                 print(f"Error importing style: {e}")
             _print_menu(); continue

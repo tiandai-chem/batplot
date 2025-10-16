@@ -112,14 +112,19 @@ def batplot_main() -> int:
         import os as _os
         import matplotlib.pyplot as _plt
         if len(args.files) != 1:
-            print("CV mode: provide exactly one .mpt file.")
+            print("CV mode: provide exactly one file (.mpt or .txt).")
             exit(1)
         ec_file = args.files[0]
         if not _os.path.isfile(ec_file):
             print(f"File not found: {ec_file}")
             exit(1)
         try:
-            voltage, current, cycles = read_mpt_file(ec_file, mode='cv')
+            # Support both .mpt and .txt formats
+            if ec_file.lower().endswith('.txt'):
+                from .readers import read_biologic_txt_file
+                voltage, current, cycles = read_biologic_txt_file(ec_file, mode='cv')
+            else:
+                voltage, current, cycles = read_mpt_file(ec_file, mode='cv')
             # Normalize cycle indices to start at 1
             # Find the first cycle with at least 2 data points (needed for plotting)
             cyc_int_raw = np.array(np.rint(cycles), dtype=int)
@@ -330,12 +335,12 @@ def batplot_main() -> int:
                     print("Example: batplot file.mpt --gc --mass 7.0")
                     exit(1)
                 specific_capacity, voltage, cycle_numbers, charge_mask, discharge_mask = read_mpt_file(ec_file, mode='gc', mass_mg=mass_mg)
-                x_label_gc = 'Specific Capacity (mAh g⁻¹)'
+                x_label_gc = r'Specific Capacity (mAh g$^{-1}$)'
                 cap_x = specific_capacity
             elif ec_file.lower().endswith('.csv'):
                 # For supported CSV export, use specific capacity directly when available (no mass required)
                 cap_x, voltage, cycle_numbers, charge_mask, discharge_mask = read_ec_csv_file(ec_file, prefer_specific=True)
-                x_label_gc = 'Specific Capacity (mAh g⁻¹)'
+                x_label_gc = r'Specific Capacity (mAh g$^{-1}$)'
             else:
                 print("GC mode: file must be .mpt or .csv")
                 exit(1)
@@ -573,81 +578,143 @@ def batplot_main() -> int:
         import os as _os
         import numpy as _np
 
-        if len(args.files) != 1:
-            print("CPC mode: provide exactly one file (.csv or .mpt).")
+        if len(args.files) < 1:
+            print("CPC mode: provide at least one file (.csv or .mpt).")
             exit(1)
-        ec_file = args.files[0]
-        if not _os.path.isfile(ec_file):
-            print(f"File not found: {ec_file}")
-            exit(1)
+        
+        # Process multiple files
+        file_data = []  # List of dicts with file info and data
+        # Use Viridis colormap for capacity (charge/discharge) - spreads from purple to yellow
+        # Use Plasma colormap for efficiency - spreads from purple to yellow-pink
+        import matplotlib.cm as cm
+        import matplotlib.colors as mcolors
+        n_files = len(args.files)
+        viridis = cm.get_cmap('viridis', n_files)
+        plasma = cm.get_cmap('plasma', n_files)
+        
+        # Generate colors from colormaps
+        capacity_colors = [mcolors.rgb2hex(viridis(i)[:3]) for i in range(n_files)]
+        efficiency_colors = [mcolors.rgb2hex(plasma(i)[:3]) for i in range(n_files)]
+        
+        for file_idx, ec_file in enumerate(args.files):
+            if not _os.path.isfile(ec_file):
+                print(f"File not found: {ec_file}")
+                continue
 
-        ext = _os.path.splitext(ec_file)[1].lower()
-        if ext == '.csv':
+            ext = _os.path.splitext(ec_file)[1].lower()
+            file_basename = _os.path.basename(ec_file)
+            
             try:
-                cap_x, voltage, cycles, chg_mask, dchg_mask = _bp_read_ec_csv(ec_file, prefer_specific=True)
+                if ext == '.csv':
+                    cap_x, voltage, cycles, chg_mask, dchg_mask = read_ec_csv_file(ec_file, prefer_specific=True)
+                    cyc = _np.array(cycles, dtype=int)
+                    unique_cycles = _np.unique(cyc)
+                    unique_cycles = unique_cycles[_np.isfinite(unique_cycles)]
+                    unique_cycles = [int(x) for x in unique_cycles]
+                    if not unique_cycles:
+                        unique_cycles = [1]
+                    cyc_nums = []
+                    cap_charge = []
+                    cap_discharge = []
+                    eff = []
+                    for c in sorted(unique_cycles):
+                        m_c = (cyc == c)
+                        qchg = _np.nanmax(cap_x[m_c & chg_mask]) if _np.any(m_c & chg_mask) else _np.nan
+                        qdch = _np.nanmax(cap_x[m_c & dchg_mask]) if _np.any(m_c & dchg_mask) else _np.nan
+                        eta = (qdch / qchg * 100.0) if (_np.isfinite(qchg) and qchg > 0 and _np.isfinite(qdch)) else _np.nan
+                        cyc_nums.append(c)
+                        cap_charge.append(qchg)
+                        cap_discharge.append(qdch)
+                        eff.append(eta)
+                    cyc_nums = _np.array(cyc_nums, dtype=float)
+                    cap_charge = _np.array(cap_charge, dtype=float)
+                    cap_discharge = _np.array(cap_discharge, dtype=float)
+                    eff = _np.array(eff, dtype=float)
+                elif ext == '.mpt':
+                    mass_mg = getattr(args, 'mass', None)
+                    if mass_mg is None:
+                        print(f"Skipped {file_basename}: CPC mode (.mpt) requires --mass parameter.")
+                        continue
+                    cyc_nums, cap_charge, cap_discharge, eff = read_mpt_file(ec_file, mode='cpc', mass_mg=mass_mg)
+                else:
+                    print(f"Skipped {file_basename}: unsupported format (must be .csv or .mpt)")
+                    continue
+                
+                # Assign colors: distinct hue for each file
+                capacity_color = capacity_colors[file_idx % len(capacity_colors)]
+                efficiency_color = efficiency_colors[file_idx % len(efficiency_colors)]
+                
+                file_data.append({
+                    'filename': file_basename,
+                    'filepath': ec_file,
+                    'cyc_nums': cyc_nums,
+                    'cap_charge': cap_charge,
+                    'cap_discharge': cap_discharge,
+                    'eff': eff,
+                    'color': capacity_color,
+                    'eff_color': efficiency_color,
+                    'visible': True
+                })
+                
             except Exception as e:
-                print(f"Failed to read EC CSV: {e}")
-                exit(1)
-            cyc = _np.array(cycles, dtype=int)
-            unique_cycles = _np.unique(cyc)
-            unique_cycles = unique_cycles[_np.isfinite(unique_cycles)]
-            unique_cycles = [int(x) for x in unique_cycles]
-            if not unique_cycles:
-                unique_cycles = [1]
-            cyc_nums = []
-            cap_charge = []
-            cap_discharge = []
-            eff = []
-            for c in sorted(unique_cycles):
-                m_c = (cyc == c)
-                qchg = _np.nanmax(cap_x[m_c & chg_mask]) if _np.any(m_c & chg_mask) else _np.nan
-                qdch = _np.nanmax(cap_x[m_c & dchg_mask]) if _np.any(m_c & dchg_mask) else _np.nan
-                eta = (qdch / qchg * 100.0) if (_np.isfinite(qchg) and qchg > 0 and _np.isfinite(qdch)) else _np.nan
-                cyc_nums.append(c)
-                cap_charge.append(qchg)
-                cap_discharge.append(qdch)
-                eff.append(eta)
-            cyc_nums = _np.array(cyc_nums, dtype=float)
-            cap_charge = _np.array(cap_charge, dtype=float)
-            cap_discharge = _np.array(cap_discharge, dtype=float)
-            eff = _np.array(eff, dtype=float)
-        elif ext == '.mpt':
-            mass_mg = getattr(args, 'mass', None)
-            if mass_mg is None:
-                print("CPC mode (.mpt): --mass parameter is required (active material mass in mg).")
-                print("Example: batplot data.mpt --cpc --mass 1.2 --interactive")
-                exit(1)
-            try:
-                cyc_nums, cap_charge, cap_discharge, eff = read_mpt_file(ec_file, mode='cpc', mass_mg=mass_mg)
-            except Exception as e:
-                print(f"Failed to read .mpt for CPC: {e}")
-                exit(1)
-        else:
-            print("CPC mode: file must be .csv or .mpt")
+                print(f"Failed to read {file_basename}: {e}")
+                continue
+        
+        if not file_data:
+            print("No valid CPC data files to plot.")
             exit(1)
 
         # Plot (same figsize as GC)
         fig, ax = plt.subplots(figsize=(10, 6))
-        col_chg = '#1f77b4'  # blue
-        col_dch = '#d62728'  # red
-        sc_charge = ax.scatter(cyc_nums, cap_charge, color=col_chg, label='Charge capacity', s=32, zorder=3)
-        sc_discharge = ax.scatter(cyc_nums, cap_discharge, color=col_dch, label='Discharge capacity', s=32, zorder=3)
         ax.set_xlabel('Cycle number', labelpad=8.0)
-        ax.set_ylabel('Specific Capacity (mAh g⁻¹)', labelpad=8.0)
+        ax.set_ylabel(r'Specific Capacity (mAh g$^{-1}$)', labelpad=8.0)
         ax.grid(True, alpha=0.25, linestyle='--', linewidth=0.8)
-        ax.legend(loc='best')
 
         ax2 = ax.twinx()
-        sc_eff = ax2.scatter(cyc_nums, eff, color='#2ca02c', marker='^', label='Coulombic efficiency', s=40, alpha=0.85, zorder=3)
         ax2.set_ylabel('Efficiency (%)', labelpad=8.0)
-        # Nice y range for efficiency if present
-        if _np.isfinite(eff).any():
-            lo = _np.nanmin(eff)
-            hi = _np.nanmax(eff)
-            pad = max(1.0, 0.05 * max(1.0, hi - lo))
-            ax2.set_ylim(max(0.0, lo - pad), min(110.0, hi + pad))
+        
+        # Create scatter plots for each file
+        for file_info in file_data:
+            cyc_nums = file_info['cyc_nums']
+            cap_charge = file_info['cap_charge']
+            cap_discharge = file_info['cap_discharge']
+            eff = file_info['eff']
+            color = file_info['color']  # Warm color for capacity
+            eff_color = file_info['eff_color']  # Cold color for efficiency
+            label = file_info['filename']
+            
+            # For single file, use simple labels; for multiple files, prefix with filename
+            if len(file_data) == 1:
+                label_chg = 'Charge capacity'
+                label_dch = 'Discharge capacity'
+                label_eff = 'Coulombic efficiency'
+            else:
+                label_chg = f'{label} (Chg)'
+                label_dch = f'{label} (Dch)'
+                label_eff = f'{label} (Eff)'
+            
+            # Use slightly different shades for charge/discharge from same file
+            from matplotlib.colors import to_rgb
+            rgb = to_rgb(color)
+            # Discharge: darker shade of the warm color
+            discharge_color = tuple(max(0, c * 0.7) for c in rgb)
+            
+            sc_charge = ax.scatter(cyc_nums, cap_charge, color=color, label=label_chg, 
+                                  s=32, zorder=3, alpha=0.8, marker='o')
+            sc_discharge = ax.scatter(cyc_nums, cap_discharge, color=discharge_color, label=label_dch, 
+                                     s=32, zorder=3, alpha=0.8, marker='s')
+            sc_eff = ax2.scatter(cyc_nums, eff, color=eff_color, marker='^', label=label_eff, 
+                               s=40, alpha=0.7, zorder=3)
+            
+            # Store scatter artists in file_info for interactive menu
+            file_info['sc_charge'] = sc_charge
+            file_info['sc_discharge'] = sc_discharge
+            file_info['sc_eff'] = sc_eff
 
-        # Compose a combined legend with extra padding to avoid touching curves
+        # Set efficiency y-range to 0-120 by default
+        ax2.set_ylim(0, 120)
+
+        # Compose a combined legend
         try:
             h1, l1 = ax.get_legend_handles_labels()
             h2, l2 = ax2.get_legend_handles_labels()
@@ -655,7 +722,7 @@ def batplot_main() -> int:
         except Exception:
             pass
 
-        # Adjust layout to ensure top and bottom labels/titles are visible (same as GC)
+        # Adjust layout to ensure top and bottom labels/titles are visible
         fig.subplots_adjust(left=0.12, right=0.88, top=0.88, bottom=0.15)
     
         if args.interactive and cpc_interactive_menu is not None:
@@ -679,7 +746,20 @@ def batplot_main() -> int:
                     pass
                 plt.show(block=False)
                 try:
-                    cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff)
+                    # Pass file_data for multi-file support, but keep backward compatibility
+                    if len(file_data) == 1:
+                        # Single file: use original signature
+                        cpc_interactive_menu(fig, ax, ax2, 
+                                           file_data[0]['sc_charge'], 
+                                           file_data[0]['sc_discharge'], 
+                                           file_data[0]['sc_eff'])
+                    else:
+                        # Multiple files: pass file_data list
+                        cpc_interactive_menu(fig, ax, ax2, 
+                                           file_data[0]['sc_charge'], 
+                                           file_data[0]['sc_discharge'], 
+                                           file_data[0]['sc_eff'],
+                                           file_data=file_data)
                 except Exception as _ie:
                     print(f"CPC interactive menu failed: {_ie}")
                 # Keep window open after menu
@@ -1185,9 +1265,9 @@ def batplot_main() -> int:
                 else:
                     # Keep canvas size as current; avoid surprising resize on load
                     pass
-            if 'dpi' in fig_cfg:
-                try: fig.set_dpi(int(fig_cfg['dpi']))
-                except Exception: pass
+            # Don't restore saved DPI - use system default to avoid display-dependent issues
+            # (Retina displays, Windows scaling, etc. can cause saved DPI to differ)
+            # Keeping figure size in inches ensures consistent appearance across platforms
         except Exception:
             pass
         # Restore spines (linewidth, color, visibility) and subplot margins/tick widths (for CLI .pkl load)
