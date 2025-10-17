@@ -27,12 +27,17 @@ from .converters import convert_to_qye
 from .readers import robust_loadtxt_skipheader, read_mpt_file
 
 SUPPORTED_EXT = {".xy", ".xye", ".qye", ".dat"}
+# Standard diffraction file extensions that have known x-axis meanings
+KNOWN_DIFFRACTION_EXT = {".xy", ".xye", ".qye", ".dat"}
 
 _two_theta_re = re.compile(r"2[tT]heta|2th", re.IGNORECASE)
 _q_re = re.compile(r"^q$", re.IGNORECASE)
 
-def _infer_axis_mode(args, any_qye: bool):
+def _infer_axis_mode(args, any_qye: bool, has_unknown_ext: bool):
     # Priority: explicit --xaxis, else .qye presence (Q), else wavelength (Q), else default 2theta with warning
+    # If unknown extensions are present, use "user defined" mode
+    if has_unknown_ext and not args.xaxis:
+        return "user_defined"
     if args.xaxis:
         if _q_re.match(args.xaxis.strip()):
             return "Q"
@@ -79,11 +84,17 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     p = Path(folder)
     if not p.is_dir():
         raise FileNotFoundError(f"Not a directory: {folder}")
-    files = sorted([f for f in p.iterdir() if f.suffix.lower() in SUPPORTED_EXT])
+    # First try to find known diffraction files
+    files = sorted([f for f in p.iterdir() if f.suffix.lower() in KNOWN_DIFFRACTION_EXT])
+    has_unknown_ext = False
+    # If no known files found, accept any file extension (except .mpt which is for electrochemistry)
     if not files:
-        raise FileNotFoundError("No supported diffraction data files (.xy/.xye/.qye/.dat) found in folder")
+        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() != ".mpt"])
+        has_unknown_ext = True
+        if not files:
+            raise FileNotFoundError("No data files found in folder (excluding .mpt files)")
     any_qye = any(f.suffix.lower()==".qye" for f in files)
-    axis_mode = _infer_axis_mode(args, any_qye)
+    axis_mode = _infer_axis_mode(args, any_qye, has_unknown_ext)
     wl = getattr(args, 'wl', None)
 
     x_arrays = []
@@ -94,7 +105,7 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
         except Exception as e:
             print(f"Skip {f.name}: {e}")
             continue
-        # Convert to Q if needed
+        # Convert to Q if needed (but not for user_defined mode)
         if axis_mode == "Q":
             if f.suffix.lower() == ".qye":
                 pass  # already Q
@@ -160,6 +171,8 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     if axis_mode == 'Q':
         # Use mathtext for reliable superscript minus; plain unicode '⁻' can fail with some fonts
         ax.set_xlabel(r'Q (Å$^{-1}$)')  # renders as Å^{-1}
+    elif axis_mode == 'user_defined':
+        ax.set_xlabel('user defined')
     else:
         ax.set_xlabel('2θ (deg)')
     # No title for operando plot (requested)
