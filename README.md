@@ -25,8 +25,8 @@ pip install batplot
 ### XRD / PDF / XAS
 
 ```bash
-# Single diffraction pattern
-batplot pattern.xye
+# Single diffraction pattern in 2theta
+batplot pattern.xye --xaxis 2theta
 
 # Interactive styling
 batplot pattern.xye --interactive
