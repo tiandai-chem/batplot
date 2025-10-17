@@ -536,7 +536,9 @@ def batplot_main() -> int:
                     _backend = _plt.get_backend()
                 except Exception:
                     _backend = "unknown"
-                _is_noninteractive = isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
                 if _is_noninteractive:
                     print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
                     print("Tips: unset MPLBACKEND or set a GUI backend, e.g. on macOS:")
@@ -564,7 +566,10 @@ def batplot_main() -> int:
                         _backend = _plt.get_backend()
                     except Exception:
                         _backend = "unknown"
-                    if not (isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})):
+                    # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                    _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                    _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                    if not _is_noninteractive:
                         _plt.show()
                     else:
                         print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
@@ -731,7 +736,9 @@ def batplot_main() -> int:
                 _backend = plt.get_backend()
             except Exception:
                 _backend = "unknown"
-            _is_noninteractive = isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+            # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+            _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+            _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
             if _is_noninteractive:
                 print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
                 print("Tips: unset MPLBACKEND or set a GUI backend, e.g. on macOS:")
@@ -765,7 +772,18 @@ def batplot_main() -> int:
                 # Keep window open after menu
                 plt.show()
         else:
-            plt.show()
+            if not (args.savefig or args.out):
+                try:
+                    _backend = plt.get_backend()
+                except Exception:
+                    _backend = "unknown"
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                if not _is_noninteractive:
+                    plt.show()
+                else:
+                    print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
         exit(0)
 
     # dQ/dV plotting mode for supported .csv electrochemistry exports
@@ -936,7 +954,9 @@ def batplot_main() -> int:
                     _backend = _plt.get_backend()
                 except Exception:
                     _backend = "unknown"
-                _is_noninteractive = isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
                 if _is_noninteractive:
                     print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
                     print("Tips: unset MPLBACKEND or set a GUI backend, e.g. on macOS:")
@@ -961,7 +981,10 @@ def batplot_main() -> int:
                         _backend = _plt.get_backend()
                     except Exception:
                         _backend = "unknown"
-                    if not (isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})):
+                    # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                    _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                    _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                    if not _is_noninteractive:
                         _plt.show()
                     else:
                         print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
@@ -1039,29 +1062,44 @@ def batplot_main() -> int:
             # Interactive or show
             if args.interactive:
                 try:
-                    _plt.ion()
+                    _backend = _plt.get_backend()
                 except Exception:
-                    pass
-                try:
-                    _plt.show(block=False)
-                except Exception:
-                    pass
-                try:
-                    if has_ec and (operando_ec_interactive_menu is not None) and (ec_ax is not None):
-                        operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax)
-                    else:
-                        # Operando-only interactive menu has been removed; fall back to non-interactive view
-                        print("Operando-only interactive menu is no longer available; showing figure without interactive controls.\nTip: include EC data to use the combined operando+EC interactive menu.")
-                except Exception as _ie:
-                    print(f"Interactive menu failed: {_ie}")
-                _plt.show()
+                    _backend = "unknown"
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                if _is_noninteractive:
+                    print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
+                    print("Tips: unset MPLBACKEND or set a GUI backend")
+                    print("Or run without --interactive and use --out to save the figure.")
+                else:
+                    try:
+                        _plt.ion()
+                    except Exception:
+                        pass
+                    try:
+                        _plt.show(block=False)
+                    except Exception:
+                        pass
+                    try:
+                        if has_ec and (operando_ec_interactive_menu is not None) and (ec_ax is not None):
+                            operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax)
+                        else:
+                            # Operando-only interactive menu has been removed; fall back to non-interactive view
+                            print("Operando-only interactive menu is no longer available; showing figure without interactive controls.\nTip: include EC data to use the combined operando+EC interactive menu.")
+                    except Exception as _ie:
+                        print(f"Interactive menu failed: {_ie}")
+                    _plt.show()
             else:
                 if not (args.savefig or args.out):
                     try:
                         _backend = _plt.get_backend()
                     except Exception:
                         _backend = "unknown"
-                    if not (isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})):
+                    # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                    _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                    _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                    if not _is_noninteractive:
                         _plt.show()
                     else:
                         print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
@@ -2324,7 +2362,17 @@ def batplot_main() -> int:
             print(f"Saved plot to {export_target}")
     else:
         # Default: show the plot in non-interactive, non-save mode
-        plt.show()
+        try:
+            _backend = plt.get_backend()
+        except Exception:
+            _backend = "unknown"
+        # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+        _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+        _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+        if not _is_noninteractive:
+            plt.show()
+        else:
+            print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
     
     # Success
     return 0

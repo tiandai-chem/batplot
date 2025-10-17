@@ -111,20 +111,86 @@ def handle_cv_mode(args) -> int:
         ax.legend()
         fig.subplots_adjust(left=0.12, right=0.95, top=0.88, bottom=0.15)
         
+        # Save if requested
+        outname = args.savefig or args.out
+        if outname:
+            if not os.path.splitext(outname)[1]:
+                outname += '.svg'
+            _, _ext = os.path.splitext(outname)
+            if _ext.lower() == '.svg':
+                try:
+                    _fig_fc = fig.get_facecolor()
+                except Exception:
+                    _fig_fc = None
+                try:
+                    _ax_fc = ax.get_facecolor()
+                except Exception:
+                    _ax_fc = None
+                try:
+                    if getattr(fig, 'patch', None) is not None:
+                        fig.patch.set_alpha(0.0)
+                        fig.patch.set_facecolor('none')
+                    if getattr(ax, 'patch', None) is not None:
+                        ax.patch.set_alpha(0.0)
+                        ax.patch.set_facecolor('none')
+                except Exception:
+                    pass
+                try:
+                    fig.savefig(outname, dpi=300, transparent=True, facecolor='none', edgecolor='none')
+                finally:
+                    try:
+                        if _fig_fc is not None and getattr(fig, 'patch', None) is not None:
+                            fig.patch.set_alpha(1.0)
+                            fig.patch.set_facecolor(_fig_fc)
+                    except Exception:
+                        pass
+                    try:
+                        if _ax_fc is not None and getattr(ax, 'patch', None) is not None:
+                            ax.patch.set_alpha(1.0)
+                            ax.patch.set_facecolor(_ax_fc)
+                    except Exception:
+                        pass
+            else:
+                fig.savefig(outname, dpi=300)
+            print(f"CV plot saved to {outname}")
+        
         # Interactive menu
         if args.interactive:
             try:
-                plt.ion()
+                _backend = plt.get_backend()
             except Exception:
-                pass
-            plt.show(block=False)
-            try:
-                electrochem_interactive_menu(fig, ax, cycle_lines)
-            except Exception as _ie:
-                print(f"Interactive menu failed: {_ie}")
-            plt.show()
+                _backend = "unknown"
+            # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+            _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+            _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+            if _is_noninteractive:
+                print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
+                print("Tips: unset MPLBACKEND or set a GUI backend")
+                print("Or run without --interactive and use --out to save the figure.")
+            else:
+                try:
+                    plt.ion()
+                except Exception:
+                    pass
+                plt.show(block=False)
+                try:
+                    electrochem_interactive_menu(fig, ax, cycle_lines)
+                except Exception as _ie:
+                    print(f"Interactive menu failed: {_ie}")
+                plt.show()
         else:
-            plt.show()
+            if not (args.savefig or args.out):
+                try:
+                    _backend = plt.get_backend()
+                except Exception:
+                    _backend = "unknown"
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                if not _is_noninteractive:
+                    plt.show()
+                else:
+                    print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
         return 0
         
     except Exception as e:
@@ -333,7 +399,9 @@ def handle_gc_mode(args) -> int:
                 _backend = plt.get_backend()
             except Exception:
                 _backend = "unknown"
-            _is_noninteractive = isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+            # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+            _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+            _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
             if _is_noninteractive:
                 print(f"Matplotlib backend '{_backend}' is non-interactive; a window cannot be shown.")
                 print("Tips: unset MPLBACKEND or set a GUI backend")
@@ -355,7 +423,10 @@ def handle_gc_mode(args) -> int:
                     _backend = plt.get_backend()
                 except Exception:
                     _backend = "unknown"
-                if not (isinstance(_backend, str) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})):
+                # TkAgg, QtAgg, Qt5Agg, WXAgg, MacOSX etc. are interactive
+                _interactive_backends = {"tkagg", "qt5agg", "qt4agg", "qtagg", "wxagg", "macosx", "gtk3agg", "gtk4agg", "wx", "qt", "gtk", "gtk3", "gtk4"}
+                _is_noninteractive = isinstance(_backend, str) and (_backend.lower() not in _interactive_backends) and ("agg" in _backend.lower() or _backend.lower() in {"pdf","ps","svg","template"})
+                if not _is_noninteractive:
                     plt.show()
                 else:
                     print(f"Matplotlib backend '{_backend}' is non-interactive; use --out to save the figure.")
