@@ -9,7 +9,7 @@
 - **Electrochemistry Modes**: Galvanostatic cycling (GC), cyclic voltammetry (CV), differential capacity (dQdV), capacity per cycle (CPC) with multi-file support
 - **Normal xy plot**: Designed for XRD, PDF, XAS (XANES/EXAFS) but also support other types
 - **Operando Analysis**: Correlate in-situ characterizations (XRD/PDF/XAS) with electrochemical data
-- **Interactive plotting**: Real-time styling and customization customized for each type of plottings
+- **Interactive plotting**: Real-time editing customized for each type of plottings
 - **Session Persistence**: Save and reload complete plot states with `.pkl` files
 - **Style Management**: Import/export plot styles as `.bpcfg` files
 - **Batch Processing**: Plot multiple files simultaneously with automatic SVG export
