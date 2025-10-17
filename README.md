@@ -8,7 +8,7 @@
 
 - **Electrochemistry Modes**: Galvanostatic cycling (GC), cyclic voltammetry (CV), differential capacity (dQdV), capacity per cycle (CPC) with multi-file support
 - **Structural Characterization**: XRD, PDF, XAS (XANES/EXAFS)
-- **Operando Analysis**: Correlate in-situ structural changes with electrochemical data
+- **Operando Analysis**: Correlate in-situ characterizations (XRD/PDF/XAS) with electrochemical data
 - **Interactive Menu**: Real-time styling, cycle visibility control, individual color customization for multi-file plots
 - **Session Persistence**: Save and reload complete plot states with `.pkl` files
 - **Style Management**: Import/export plot styles as `.bpcfg` files
