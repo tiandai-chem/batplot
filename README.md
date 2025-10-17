@@ -28,8 +28,8 @@ pip install batplot
 # Single diffraction pattern
 batplot pattern.xye
 
-# Multiple patterns with interactive styling
-batplot *.xye --interactive
+# Interactive styling
+batplot pattern.xye --interactive
 
 # Batch mode: export all XY files to SVG
 batplot all
