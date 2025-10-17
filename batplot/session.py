@@ -1011,6 +1011,7 @@ def dump_ec_session(
             'tick_widths': tick_widths,
             'spines': spines_state,
             'titles': titles,
+            'mode': getattr(ax, '_is_dqdv_mode', None),  # Store dQdV mode flag
         }
         if skip_confirm:
             target = filename
@@ -1316,6 +1317,15 @@ def load_ec_session(filename: str):
             ax._right_ylabel_on = False
     except Exception:
         pass
+    
+    # Restore mode flag (e.g., dQdV mode)
+    try:
+        mode = sess.get('mode')
+        if mode is not None:
+            ax._is_dqdv_mode = bool(mode)
+    except Exception:
+        pass
+    
     try:
         fig.canvas.draw()
     except Exception:

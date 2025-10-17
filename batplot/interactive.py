@@ -1969,37 +1969,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     if sub == 'r' or sub == '':
                         continue
                     if sub == 'e':
-                        choice = input("Enter new filename or number to overwrite (q=cancel): ").strip()
-                        if not choice or choice.lower() == 'q':
-                            print("Canceled.")
-                        else:
-                            target = None
-                            if choice.isdigit() and _bpcfg_files:
-                                _idx = int(choice)
-                                if 1 <= _idx <= len(_bpcfg_files):
-                                    name = _bpcfg_files[_idx-1]
-                                    yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
-                                    if yn == 'y':
-                                        target = os.path.join(os.getcwd(), name)
-                                else:
-                                    print("Invalid number.")
-                            else:
-                                name = choice
-                                root, ext = os.path.splitext(name)
-                                if ext == '':
-                                    name = name + '.bpcfg'
-                                target = name if os.path.isabs(name) else os.path.join(os.getcwd(), name)
-                                if os.path.exists(target):
-                                    yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
-                                    if yn != 'y':
-                                        target = None
-                            if target:
-                                export_style_config(target)
-                                print(f"Exported style to {target}")
-                                style_menu_active = False  # Exit style submenu and return to main menu
-                                break
-                            else:
-                                print("Export canceled.")
+                        # Call export_style_config which handles the entire export dialog
+                        export_style_config(None)  # The filename parameter is ignored by the function
+                        style_menu_active = False  # Exit style submenu and return to main menu
+                        break
                     else:
                         print("Unknown choice.")
             except Exception as e:

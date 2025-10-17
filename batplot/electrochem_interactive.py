@@ -25,7 +25,7 @@ from .plotting import update_labels as _update_labels
 from .utils import _confirm_overwrite
 
 
-def _print_menu(n_cycles: int):
+def _print_menu(n_cycles: int, is_dqdv: bool = False):
     # Three-column menu similar to operando: Styles | Geometries | Options
     # Use dynamic column widths for clean alignment.
     col1 = [
@@ -38,11 +38,14 @@ def _print_menu(n_cycles: int):
     ]
     col2 = [
         "c: cycles/colors",
-        "a: capacity/ion",
         "r: rename axes",
         "x: x-scale",
         "y: y-scale",
     ]
+    # Only show capacity/ion option when NOT in dQdV mode
+    if not is_dqdv:
+        col2.insert(1, "a: capacity/ion")
+    
     col3 = [
         "p: print(export) style",
         "i: import style",
@@ -364,6 +367,15 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
 
     base_xlabel = ax.get_xlabel() or ''
     base_ylabel = ax.get_ylabel() or ''
+    
+    # Detect dQdV mode: check stored flag first, then fall back to y-label detection
+    # This handles cases where the user renamed the y-axis and saved/reloaded the session
+    is_dqdv = getattr(ax, '_is_dqdv_mode', None)
+    if is_dqdv is None:
+        # Initial detection: check if y-label contains "dQ"
+        is_dqdv = 'dQ' in base_ylabel
+        # Store the mode on the axes for persistence
+        ax._is_dqdv_mode = is_dqdv
 
     def _set_spine_visible(which: str, visible: bool):
         sp = ax.spines.get(which)
@@ -765,7 +777,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             print("Undo: restored previous state.")
         except Exception as e:
             print(f"Undo failed: {e}")
-    _print_menu(len(all_cycles))
+    _print_menu(len(all_cycles), is_dqdv)
     while True:
         key = input("Press a key: ").strip().lower()
         if not key:
@@ -778,18 +790,18 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             if confirm == 'y':
                 break
             else:
-                _print_menu(len(all_cycles))
+                _print_menu(len(all_cycles), is_dqdv)
                 continue
         elif key == 'b':
             restore_state()
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'e':
             # Export current figure to a file; default extension .svg if missing
             try:
                 fname = input("Export filename (default .svg if no extension, q=cancel): ").strip()
                 if not fname or fname.lower() == 'q':
-                    _print_menu(len(all_cycles))
+                    _print_menu(len(all_cycles), is_dqdv)
                     continue
                 root, ext = os.path.splitext(fname)
                 if ext == '':
@@ -843,7 +855,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     print(f"Export failed: {e}")
             except Exception as e:
                 print(f"Error exporting figure: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'h':
             # Legend submenu: toggle visibility and move legend in inches relative to canvas center
@@ -948,7 +960,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         print("Unknown option.")
             except Exception:
                 pass
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'p':
             # Print current style and optionally export to .bpcfg
@@ -964,7 +976,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
 
             except Exception as e:
                 print(f"Error in style menu: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'i':
             # Import style from .bpcfg (with numbered list)
@@ -980,13 +992,13 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         print(f"  {_i}: {_f}")
                 inp = input("Enter number to open or filename (.bpcfg, q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
-                    _print_menu(len(all_cycles)); continue
+                    _print_menu(len(all_cycles), is_dqdv); continue
                 if inp.isdigit() and _bpcfg_files:
                     _idx = int(inp)
                     if 1 <= _idx <= len(_bpcfg_files):
                         path = os.path.join(os.getcwd(), _bpcfg_files[_idx-1])
                     else:
-                        print("Invalid number."); _print_menu(len(all_cycles)); continue
+                        print("Invalid number."); _print_menu(len(all_cycles), is_dqdv); continue
                 else:
                     path = inp
                     if not os.path.isfile(path):
@@ -996,14 +1008,14 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             if os.path.isfile(alt):
                                 path = alt
                             else:
-                                print("File not found."); _print_menu(len(all_cycles)); continue
+                                print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
                         else:
-                            print("File not found."); _print_menu(len(all_cycles)); continue
+                            print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
                 if not isinstance(cfg, dict) or cfg.get('kind') != 'ec_style':
                     print("Not an EC style file.")
-                    _print_menu(len(all_cycles))
+                    _print_menu(len(all_cycles), is_dqdv)
                     continue
                 
                 # --- Apply comprehensive style (no curve data) ---
@@ -1087,7 +1099,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
 
             except Exception as e:
                 print(f"Error importing style: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'l':
             # Line widths submenu: curves vs frame/ticks
@@ -1262,7 +1274,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         print("Unknown option.")
             except Exception as e:
                 print(f"Error in line submenu: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'r':
             # Rename axis labels
@@ -1323,7 +1335,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         fig.canvas.draw_idle()
             except Exception as e:
                 print(f"Error renaming axes: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 't':
             # Unified WASD: w/a/s/d x 1..5 => spine, ticks, minor, labels, title
@@ -1442,7 +1454,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             fig.canvas.draw_idle()
             except Exception as e:
                 print(f"Error in WASD tick visibility menu: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 's':
             try:
@@ -1458,18 +1470,18 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         print(f"  {i}: {f}")
                 choice = input("Enter new filename or number to overwrite (q=cancel): ").strip()
                 if not choice or choice.lower() == 'q':
-                    _print_menu(len(all_cycles)); continue
+                    _print_menu(len(all_cycles), is_dqdv); continue
                 if choice.isdigit() and files:
                     idx = int(choice)
                     if 1 <= idx <= len(files):
                         name = files[idx-1]
                         yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
                         if yn != 'y':
-                            _print_menu(len(all_cycles)); continue
+                            _print_menu(len(all_cycles), is_dqdv); continue
                         target = os.path.join(folder, name)
                     else:
                         print("Invalid number.")
-                        _print_menu(len(all_cycles)); continue
+                        _print_menu(len(all_cycles), is_dqdv); continue
                 else:
                     name = choice
                     root, ext = os.path.splitext(name)
@@ -1479,11 +1491,11 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     if os.path.exists(target):
                         yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
                         if yn != 'y':
-                            _print_menu(len(all_cycles)); continue
+                            _print_menu(len(all_cycles), is_dqdv); continue
                 dump_ec_session(target, fig=fig, ax=ax, cycle_lines=cycle_lines, skip_confirm=True)
             except Exception as e:
                 print(f"Save failed: {e}")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'c':
             print(f"Cycles present ({len(all_cycles)} total):", ", ".join(str(c) for c in all_cycles))
@@ -1559,9 +1571,14 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             if ignored:
                 print("Ignored cycles:", ", ".join(str(c) for c in ignored))
             # Show the menu again after completing the command
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'a':
+            # X-axis submenu: number-of-ions vs capacity (not available in dQdV mode)
+            if is_dqdv:
+                print("Capacity/ion conversion is not available in dQ/dV mode.")
+                _print_menu(len(all_cycles), is_dqdv)
+                continue
             # X-axis submenu: number-of-ions vs capacity
             while True:
                 print("X-axis menu: n=number of ions, c=capacity, q=back")
@@ -1625,7 +1642,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             fig.canvas.draw()
                         except Exception:
                             fig.canvas.draw_idle()
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'f':
             # Font submenu with numbered options
@@ -1694,7 +1711,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             print("Size must be positive.")
                     except Exception:
                         print("Invalid size.")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'x':
             # X-axis: set limits only
@@ -1708,7 +1725,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     fig.canvas.draw()
                 except Exception:
                     print("Invalid limits, ignored.")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'y':
             # Y-axis: set limits only
@@ -1722,7 +1739,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     fig.canvas.draw()
                 except Exception:
                     print("Invalid limits, ignored.")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'g':
             # Geometry submenu: plot frame vs canvas (scales moved to separate keys)
@@ -1751,11 +1768,11 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     fig.canvas.draw()
                 except Exception:
                     fig.canvas.draw_idle()
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
             continue
         else:
             print("Unknown command.")
-            _print_menu(len(all_cycles))
+            _print_menu(len(all_cycles), is_dqdv)
 
 
 def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
