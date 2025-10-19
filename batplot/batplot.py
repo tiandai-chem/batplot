@@ -183,11 +183,12 @@ def batplot_main() -> int:
                     x_b = np.concatenate(X) if X else np.array([])
                     y_b = np.concatenate(Y) if Y else np.array([])
                     ln, = ax.plot(x_b, y_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
-                                  linewidth=2.0, label=f'Cycle {cyc}', alpha=0.8)
+                                  linewidth=2.0, label=str(cyc), alpha=0.8)
                     cycle_lines[cyc] = ln
             ax.set_xlabel('Voltage (V)', labelpad=8.0)
             ax.set_ylabel('Current (mA)', labelpad=8.0)
-            ax.legend()
+            legend = ax.legend(title='Cycle')
+            legend.get_title().set_fontsize('medium')
             # Match GC/dQdV: consistent label/title displacement and canvas
             fig.subplots_adjust(left=0.12, right=0.95, top=0.88, bottom=0.15)
             # Interactive menu: use electrochem_interactive_menu for consistency with GC
@@ -442,7 +443,7 @@ def batplot_main() -> int:
                         x_b, y_b = _broken_arrays_from_indices(idx, cap_x, voltage)
                         # Label only once per cycle for legend: Cycle N
                         ln_c, = ax.plot(x_b, y_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
-                                        linewidth=2.0, label=f'Cycle {cyc}', alpha=0.8)
+                                        linewidth=2.0, label=str(cyc), alpha=0.8)
                     else:
                         ln_c = None
                     # Discharge
@@ -451,7 +452,7 @@ def batplot_main() -> int:
                     if idxd.size >= 2:
                         xd_b, yd_b = _broken_arrays_from_indices(idxd, cap_x, voltage)
                         # Use no legend entry for the second line of the same cycle
-                        lbl = '_nolegend_' if ln_c is not None else f'Cycle {cyc}'
+                        lbl = '_nolegend_' if ln_c is not None else str(cyc)
                         ln_d, = ax.plot(xd_b, yd_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
                                         linewidth=2.0, label=lbl, alpha=0.8)
                     else:
@@ -470,20 +471,21 @@ def batplot_main() -> int:
                         idx = np.arange(a, b + 1)
                         x_b, y_b = _broken_arrays_from_indices(idx, cap_x, voltage)
                         ln_c, = ax.plot(x_b, y_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
-                                        linewidth=2.0, label=f'Cycle {cyc}', alpha=0.8)
+                                        linewidth=2.0, label=str(cyc), alpha=0.8)
                     ln_d = None
                     if i < len(dch_blocks):
                         a, b = dch_blocks[i]
                         idx = np.arange(a, b + 1)
                         xd_b, yd_b = _broken_arrays_from_indices(idx, cap_x, voltage)
-                        lbl = '_nolegend_' if ln_c is not None else f'Cycle {cyc}'
+                        lbl = '_nolegend_' if ln_c is not None else str(cyc)
                         ln_d, = ax.plot(xd_b, yd_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
                                         linewidth=2.0, label=lbl, alpha=0.8)
                     cycle_lines[cyc] = {"charge": ln_c, "discharge": ln_d}
             # Labels with consistent labelpad
             ax.set_xlabel(x_label_gc, labelpad=8.0)
             ax.set_ylabel('Voltage (V)', labelpad=8.0)
-            ax.legend()
+            legend = ax.legend(title='Cycle')
+            legend.get_title().set_fontsize('medium')
             # No background grid by default for GC plots
         
             # Adjust layout to ensure top and bottom labels/titles are visible
@@ -885,7 +887,7 @@ def batplot_main() -> int:
                 if idx_c.size >= 2:
                     x_b, y_b = _broken_arrays_from_indices(idx_c, voltage, dqdv)
                     ln_c, = ax.plot(x_b, y_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
-                                    linewidth=2.0, label=f'Cycle {cyc}', alpha=0.8)
+                                    linewidth=2.0, label=str(cyc), alpha=0.8)
                 else:
                     ln_c = None
                 # Discharge
@@ -893,7 +895,7 @@ def batplot_main() -> int:
                 idx_d = np.where(mask_d)[0]
                 if idx_d.size >= 2:
                     xd_b, yd_b = _broken_arrays_from_indices(idx_d, voltage, dqdv)
-                    lbl = '_nolegend_' if ln_c is not None else f'Cycle {cyc}'
+                    lbl = '_nolegend_' if ln_c is not None else str(cyc)
                     ln_d, = ax.plot(xd_b, yd_b, '-', color=base_colors[(cyc-1) % len(base_colors)],
                                     linewidth=2.0, label=lbl, alpha=0.8)
                 else:
@@ -903,7 +905,8 @@ def batplot_main() -> int:
             # Labels with consistent labelpad (same as GC/CPC)
             ax.set_xlabel('Voltage (V)', labelpad=8.0)
             ax.set_ylabel(y_label, labelpad=8.0)
-            ax.legend()
+            legend = ax.legend(title='Cycle')
+            legend.get_title().set_fontsize('medium')
             # No background grid by default (same as GC)
         
             # Adjust layout to ensure top and bottom labels/titles are visible (same as GC/CPC)

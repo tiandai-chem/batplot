@@ -1498,7 +1498,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'c':
-            print(f"Cycles present ({len(all_cycles)} total):", ", ".join(str(c) for c in all_cycles))
+            print(f"Total cycles: {len(all_cycles)}")
             print("Enter one of:")
             print("  - numbers: e.g. 1 5 10")
             print("  - mappings: e.g. 1:red 5:#00B006 10:blue")

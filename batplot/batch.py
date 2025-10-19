@@ -208,9 +208,68 @@ def batch_process_ec(directory: str, args):
     
     print(f"Found {len(files)} {mode.upper()} files. Exporting SVG plots to {out_dir}")
     
-    # Color palette
+    # Enhanced color palette using matplotlib colormaps
+    # Start with base colors, then generate more using colormap if needed
     base_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
                    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+    
+    def get_color_palette(n_colors):
+        """Generate a color palette with n_colors distinct colors.
+        
+        For large numbers of cycles (>70), uses continuous colormaps to ensure
+        all cycles get visually distinct colors.
+        """
+        if n_colors <= len(base_colors):
+            return base_colors[:n_colors]
+        else:
+            import matplotlib.cm as cm
+            colors = list(base_colors)  # Start with base colors
+            remaining = n_colors - len(base_colors)
+            
+            if remaining <= 60:
+                # Use tab20, tab20b, tab20c for categorical colors (up to 70 total)
+                tab20 = cm.get_cmap('tab20')
+                tab20b = cm.get_cmap('tab20b')
+                tab20c = cm.get_cmap('tab20c')
+                
+                for i in range(remaining):
+                    cmap_idx = i % 60
+                    if cmap_idx < 20:
+                        color = tab20(cmap_idx / 20)
+                    elif cmap_idx < 40:
+                        color = tab20b((cmap_idx - 20) / 20)
+                    else:
+                        color = tab20c((cmap_idx - 40) / 20)
+                    hex_color = '#{:02x}{:02x}{:02x}'.format(
+                        int(color[0]*255), int(color[1]*255), int(color[2]*255))
+                    if hex_color not in colors:
+                        colors.append(hex_color)
+                    if len(colors) >= n_colors:
+                        break
+            else:
+                # For >70 cycles, use continuous colormaps for smooth color gradients
+                # Combine multiple perceptually uniform colormaps
+                cmaps = ['viridis', 'plasma', 'inferno', 'magma', 'cividis', 
+                         'turbo', 'twilight', 'hsv']
+                colors_per_map = (remaining + len(cmaps) - 1) // len(cmaps)
+                
+                for cmap_name in cmaps:
+                    cmap = cm.get_cmap(cmap_name)
+                    # Sample evenly across the colormap
+                    for i in range(colors_per_map):
+                        if len(colors) >= n_colors:
+                            break
+                        # Sample from middle 80% of colormap to avoid extreme light/dark
+                        t = 0.1 + 0.8 * (i / max(colors_per_map - 1, 1))
+                        color = cmap(t)
+                        hex_color = '#{:02x}{:02x}{:02x}'.format(
+                            int(color[0]*255), int(color[1]*255), int(color[2]*255))
+                        if hex_color not in colors:
+                            colors.append(hex_color)
+                    if len(colors) >= n_colors:
+                        break
+            
+            return colors[:n_colors]  # Ensure exact count
     
     for fname in files:
         fpath = os.path.join(directory, fname)
@@ -251,7 +310,10 @@ def batch_process_ec(directory: str, args):
                 else:
                     cycles_present = [1]
                 
-                for cyc in cycles_present[:10]:  # Limit to first 10 cycles for clarity
+                # Generate color palette for the number of cycles
+                cycle_colors = get_color_palette(len(cycles_present))
+                
+                for idx, cyc in enumerate(cycles_present):  # Plot all cycles
                     if cycle_numbers is not None:
                         mask_c = (cyc_int == cyc) & charge_mask
                         mask_d = (cyc_int == cyc) & discharge_mask
@@ -259,18 +321,28 @@ def batch_process_ec(directory: str, args):
                         mask_c = charge_mask
                         mask_d = discharge_mask
                     
-                    color = base_colors[(cyc-1) % len(base_colors)]
+                    color = cycle_colors[idx]
                     
+                    # Plot charge and discharge with the same color and label
+                    plotted = False
                     if np.any(mask_c):
                         ax_b.plot(cap_x[mask_c], voltage[mask_c], '-', 
-                                 color=color, linewidth=1.5, alpha=0.8)
+                                 color=color, linewidth=1.5, alpha=0.8, label=str(cyc))
+                        plotted = True
                     if np.any(mask_d):
-                        ax_b.plot(cap_x[mask_d], voltage[mask_d], '-', 
-                                 color=color, linewidth=1.5, alpha=0.8)
+                        if plotted:
+                            # Don't add another label for discharge
+                            ax_b.plot(cap_x[mask_d], voltage[mask_d], '-', 
+                                     color=color, linewidth=1.5, alpha=0.8)
+                        else:
+                            ax_b.plot(cap_x[mask_d], voltage[mask_d], '-', 
+                                     color=color, linewidth=1.5, alpha=0.8, label=str(cyc))
                 
                 ax_b.set_xlabel(x_label)
                 ax_b.set_ylabel('Voltage (V)')
                 ax_b.set_title(f"{fname}")
+                legend = ax_b.legend(loc='best', fontsize='small', framealpha=0.8, title='Cycle')
+                legend.get_title().set_fontsize('small')
             
             # ---- CV Mode ----
             elif mode == 'cv':
@@ -291,28 +363,79 @@ def batch_process_ec(directory: str, args):
                 else:
                     cycles_present = [1]
                 
-                for cyc in cycles_present[:10]:  # Limit to first 10 cycles
+                # Generate color palette for the number of cycles
+                cycle_colors = get_color_palette(len(cycles_present))
+                
+                for idx, cyc in enumerate(cycles_present):  # Plot all cycles
                     mask = (cyc_int == cyc)
-                    idx = np.where(mask)[0]
-                    if idx.size >= 2:
-                        color = base_colors[(cyc-1) % len(base_colors)]
+                    mask_idx = np.where(mask)[0]
+                    if mask_idx.size >= 2:
+                        color = cycle_colors[idx]
                         ax_b.plot(voltage[mask], current[mask], '-', 
-                                 color=color, linewidth=1.5, alpha=0.8)
+                                 color=color, linewidth=1.5, alpha=0.8, label=str(cyc))
                 
                 ax_b.set_xlabel('Voltage (V)')
                 ax_b.set_ylabel('Current (mA)')
                 ax_b.set_title(f"{fname}")
+                legend = ax_b.legend(loc='best', fontsize='small', framealpha=0.8, title='Cycle')
+                legend.get_title().set_fontsize('small')
             
             # ---- dQdV Mode ----
             elif mode == 'dqdv':
                 if ext != '.csv':
                     raise ValueError("dQdV mode requires .csv file")
                 
-                voltage, dqdv = read_ec_csv_dqdv_file(fpath)
-                ax_b.plot(voltage, dqdv, '-', color='#1f77b4', linewidth=1.5)
+                # Read dQdV data with cycle information
+                voltage, dqdv, cycles, charge_mask, discharge_mask, y_label = \
+                    read_ec_csv_dqdv_file(fpath, prefer_specific=True)
+                
+                # Process cycles similar to GC mode
+                if cycles is not None and cycles.size > 0:
+                    cyc_int_raw = np.array(np.rint(cycles), dtype=int)
+                    if cyc_int_raw.size:
+                        min_c = int(np.min(cyc_int_raw))
+                        shift = 1 - min_c if min_c <= 0 else 0
+                        cyc_int = cyc_int_raw + shift
+                        cycles_present = sorted(int(c) for c in np.unique(cyc_int))
+                    else:
+                        cycles_present = [1]
+                else:
+                    cycles_present = [1]
+                
+                # Generate color palette for the number of cycles
+                cycle_colors = get_color_palette(len(cycles_present))
+                
+                # Plot each cycle
+                for idx, cyc in enumerate(cycles_present):
+                    if cycles is not None:
+                        mask_c = (cyc_int == cyc) & charge_mask
+                        mask_d = (cyc_int == cyc) & discharge_mask
+                    else:
+                        mask_c = charge_mask
+                        mask_d = discharge_mask
+                    
+                    color = cycle_colors[idx]
+                    
+                    # Plot charge and discharge with the same color and label
+                    plotted = False
+                    if np.any(mask_c):
+                        ax_b.plot(voltage[mask_c], dqdv[mask_c], '-', 
+                                 color=color, linewidth=1.5, alpha=0.8, label=str(cyc))
+                        plotted = True
+                    if np.any(mask_d):
+                        if plotted:
+                            # Don't add another label for discharge
+                            ax_b.plot(voltage[mask_d], dqdv[mask_d], '-', 
+                                     color=color, linewidth=1.5, alpha=0.8)
+                        else:
+                            ax_b.plot(voltage[mask_d], dqdv[mask_d], '-', 
+                                     color=color, linewidth=1.5, alpha=0.8, label=str(cyc))
+                
                 ax_b.set_xlabel('Voltage (V)')
-                ax_b.set_ylabel(r'dQ/dV (mAh g$^{-1}$ V$^{-1}$)')
+                ax_b.set_ylabel(y_label)
                 ax_b.set_title(f"{fname}")
+                legend = ax_b.legend(loc='best', fontsize='small', framealpha=0.8, title='Cycle')
+                legend.get_title().set_fontsize('small')
             
             # ---- CPC Mode ----
             elif mode == 'cpc':
