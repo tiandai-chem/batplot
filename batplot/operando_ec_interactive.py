@@ -1055,15 +1055,16 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"Save failed: {e}")
             print_menu(); continue
         if cmd == 'h':
-            _snapshot("height")
             print(f"Current height: {ax_h_in:.2f} in")
             val = input("New height (inches): ").strip()
-            try:
-                new_h = max(0.25, float(val))
-                ax_h_in = new_h
-                _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
-            except Exception as e:
-                print(f"Invalid height: {e}")
+            if val:
+                _snapshot("height")
+                try:
+                    new_h = max(0.25, float(val))
+                    ax_h_in = new_h
+                    _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
+                except Exception as e:
+                    print(f"Invalid height: {e}")
             print_menu()
         elif cmd == 'r':
             _snapshot("reverse")
@@ -1100,7 +1101,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 if sub == 'q':
                     break
                 if sub == 'f':
-                    _snapshot("font-family")
                     # Common font families with numbered options
                     fonts = ['Arial', 'DejaVu Sans', 'Helvetica', 'Liberation Sans', 
                              'Times New Roman', 'Courier New', 'Verdana', 'Tahoma']
@@ -1111,6 +1111,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     choice = input("Font family (number or name): ").strip()
                     if not choice:
                         continue
+                    _snapshot("font-family")
                     # Check if it's a number
                     if choice.isdigit():
                         idx = int(choice)
@@ -1125,12 +1126,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         set_fonts(family=choice)
                         print(f"Applied font family: {choice}")
                 elif sub == 's':
-                    _snapshot("font-size")
                     # Show current size and accept direct input
                     cur_size = plt.rcParams.get('font.size', None)
                     choice = input(f"Font size (current: {cur_size}): ").strip()
                     if not choice:
                         continue
+                    _snapshot("font-size")
                     try:
                         sz = float(choice)
                         if sz > 0:
@@ -1143,7 +1144,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd == 'l':
             # Line widths submenu for both operando and EC panes
-            _snapshot("line-widths")
             print("Line widths: set frame (spines) and tick widths for both operando and EC")
             print("Enter frame/tick width (e.g., '1.5' or 'f t' for frame/tick separately)")
             print("Format examples:")
@@ -1156,6 +1156,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print_menu()
                 continue
             
+            _snapshot("line-widths")
             try:
                 parts = inp.split()
                 if len(parts) == 1:
@@ -1554,10 +1555,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             fig.canvas.draw_idle()
             print_menu()
         elif cmd == 'ox':
-            _snapshot("operando-xrange")
             cur = ax.get_xlim(); print(f"Current operando X: {cur[0]:.4g} {cur[1]:.4g}")
             line = input("New X range (min max, blank=cancel): ").strip()
             if line:
+                _snapshot("operando-xrange")
                 try:
                     lo, hi = map(float, line.split())
                     ax.set_xlim(lo, hi)
@@ -1568,10 +1569,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd == 'oy':
-            _snapshot("operando-yrange")
             cur = ax.get_ylim(); print(f"Current operando Y: {cur[0]:.4g} {cur[1]:.4g}")
             line = input("New Y range (min max, blank=cancel): ").strip()
             if line:
+                _snapshot("operando-yrange")
                 try:
                     lo, hi = map(float, line.split())
                     ax.set_ylim(lo, hi)
@@ -1582,7 +1583,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd == 'oz':
-            _snapshot("operando-intensity-range")
             try:
                 cur = im.get_clim()
                 print(f"Current normalized intensity range: {cur[0]:.4g} {cur[1]:.4g}")
@@ -1590,6 +1590,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print("Could not retrieve current intensity range")
             line = input("New intensity range (min max, blank=cancel): ").strip()
             if line:
+                _snapshot("operando-intensity-range")
                 try:
                     lo, hi = map(float, line.split())
                     im.set_clim(lo, hi)
@@ -1603,26 +1604,28 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd in ('ow'):
-            _snapshot("operando-width")
             print(f"Current operando width: {ax_w_in:.2f} in")
             val = input("New width (inches): ").strip()
-            try:
-                new_w = max(0.25, float(val))
-                ax_w_in = new_w
-                _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
-            except Exception as e:
-                print(f"Invalid width: {e}")
+            if val:
+                _snapshot("operando-width")
+                try:
+                    new_w = max(0.25, float(val))
+                    ax_w_in = new_w
+                    _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
+                except Exception as e:
+                    print(f"Invalid width: {e}")
             print_menu()
         elif cmd == 'ew':
-            _snapshot("ec-width")
             print(f"Current EC width: {ec_w_in:.2f} in")
             val = input("New EC width (inches): ").strip()
-            try:
-                new_w = max(0.25, float(val))
-                ec_w_in = new_w
-                _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
-            except Exception as e:
-                print(f"Invalid EC width: {e}")
+            if val:
+                _snapshot("ec-width")
+                try:
+                    new_w = max(0.25, float(val))
+                    ec_w_in = new_w
+                    _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
+                except Exception as e:
+                    print(f"Invalid EC width: {e}")
             print_menu()
         elif cmd == 'oc':
             # Change operando colormap (perceptually uniform suggestions)
@@ -2233,10 +2236,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     if sub == 'q':
                         break
                     if sub == 'x':
-                        _snapshot("rename-op-x")
                         cur = ax.get_xlabel() or ''
                         lab = input(f"New operando X label (blank=cancel, current='{cur}'): ").strip()
                         if lab:
+                            _snapshot("rename-op-x")
                             try:
                                 ax.set_xlabel(lab)
                                 ax._custom_labels['x'] = lab
@@ -2246,10 +2249,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             except Exception:
                                 pass
                     elif sub == 'y':
-                        _snapshot("rename-op-y")
                         cur = ax.get_ylabel() or ''
                         lab = input(f"New operando Y label (blank=cancel, current='{cur}'): ").strip()
                         if lab:
+                            _snapshot("rename-op-y")
                             try:
                                 ax.set_ylabel(lab)
                                 ax._custom_labels['y'] = lab
@@ -2278,10 +2281,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     if sub == 'q':
                         break
                     if sub == 'x':
-                        _snapshot("rename-ec-x")
                         cur = ec_ax.get_xlabel() or ''
                         lab = input(f"New EC X label (blank=cancel, current='{cur}'): ").strip()
                         if lab:
+                            _snapshot("rename-ec-x")
                             try:
                                 ec_ax.set_xlabel(lab)
                                 ec_ax._custom_labels['x'] = lab
@@ -2290,10 +2293,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             except Exception:
                                 pass
                     elif sub == 'y':
-                        _snapshot("rename-ec-y")
                         cur = ec_ax.get_ylabel() or ''
                         lab = input(f"New EC Y label (blank=cancel, current='{cur}'): ").strip()
                         if lab:
+                            _snapshot("rename-ec-y")
                             try:
                                 ec_ax.set_ylabel(lab)
                                 # Store against current mode
@@ -2331,22 +2334,22 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     if sub == 'q':
                         break
                     if sub == 'c':
-                        _snapshot("ec-line-color")
                         cur = ln.get_color()
                         val = input(f"Color (name or hex, current={cur}, blank=cancel): ").strip()
                         if not val:
                             continue
+                        _snapshot("ec-line-color")
                         try:
                             ln.set_color(val)
                             fig.canvas.draw_idle()
                         except Exception as e:
                             print(f"Invalid color: {e}")
                     elif sub == 'l':
-                        _snapshot("ec-line-width")
                         cur = ln.get_linewidth()
                         val = input(f"Line width (current={cur}, blank=cancel): ").strip()
                         if not val:
                             continue
+                        _snapshot("ec-line-width")
                         try:
                             lw = float(val)
                             if lw > 0:
@@ -2362,10 +2365,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"EC line styling failed: {e}")
             print_menu()
         elif cmd == 'et':
-            _snapshot("ec-time-range")
             cur = ec_ax.get_ylim(); print(f"Current EC time range (Y): {cur[0]:.4g} {cur[1]:.4g}")
             line = input("New time range (min max, blank=cancel): ").strip()
             if line:
+                _snapshot("ec-time-range")
                 try:
                     lo, hi = map(float, line.split())
                     ec_ax.set_ylim(lo, hi)
@@ -2438,7 +2441,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 if not sub or sub == 'q':
                     print_menu(); continue
                 if sub == 'n':
-                    _snapshot("ey->ions")
                     # Get or update parameters; allow reuse of previous values
                     params = getattr(ec_ax, '_ion_params', {"mass_mg": None, "cap_per_ion_mAh_g": None, "start_ions": None, "material": "cathode"})
                     mass_mg = params.get('mass_mg')
@@ -2469,6 +2471,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         if material is None:
                             material = 'cathode'
                         ec_ax._ion_params = {"mass_mg": mass_mg, "cap_per_ion_mAh_g": cap_per_ion, "start_ions": start_ions, "material": material}
+                    _snapshot("ey->ions")
                     import numpy as np
                     t = np.asarray(time_h, float)
                     i_mA = np.asarray(current_mA, float)

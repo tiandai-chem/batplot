@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "batplot"
-version = "1.1.7"
+version = "1.1.8"
 description = "Interactive plotting for XRD, PDF, and XAS data (.xye, .xy, .qye, .dat, .csv, .gr, .nor, .chik, .chir)"
 authors = [
     { name = "Tian Dai", email = "tianda@uio.no" }
