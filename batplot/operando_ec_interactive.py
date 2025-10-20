@@ -347,6 +347,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         col2 = [
             "ox: X range",
             "oy: Y range",
+            "oz: intensity range",
             "or: rename"
         ]
         col3 = [
@@ -1576,6 +1577,27 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     ax.set_ylim(lo, hi)
                     # Re-normalize intensity to visible region
                     _renormalize_to_visible()
+                    fig.canvas.draw_idle()
+                except Exception as e:
+                    print(f"Invalid range: {e}")
+            print_menu()
+        elif cmd == 'oz':
+            _snapshot("operando-intensity-range")
+            try:
+                cur = im.get_clim()
+                print(f"Current normalized intensity range: {cur[0]:.4g} {cur[1]:.4g}")
+            except Exception:
+                print("Could not retrieve current intensity range")
+            line = input("New intensity range (min max, blank=cancel): ").strip()
+            if line:
+                try:
+                    lo, hi = map(float, line.split())
+                    im.set_clim(lo, hi)
+                    try:
+                        if cbar is not None:
+                            cbar.update_normal(im)
+                    except Exception:
+                        pass
                     fig.canvas.draw_idle()
                 except Exception as e:
                     print(f"Invalid range: {e}")
