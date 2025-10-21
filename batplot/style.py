@@ -266,28 +266,59 @@ def export_style_config(
                 for i, (lab, fname, peaksQ, wl, qmax_sim, color) in enumerate(cif_tick_series)
             ]
         
-        # List existing .bpcfg files for user convenience
+        # Ask user for style-only or style+geometry
+        print("\nExport options:")
+        print("  ps  = style only (.bps)")
+        print("  psg = style + geometry (.bpsg)")
+        exp_choice = input("Export choice (ps/psg, q=cancel): ").strip().lower()
+        if not exp_choice or exp_choice == 'q':
+            print("Style export canceled.")
+            return
+        
+        # Determine file extension and add geometry if requested
+        if exp_choice == 'ps':
+            cfg['kind'] = 'xy_style'
+            default_ext = '.bps'
+        elif exp_choice == 'psg':
+            cfg['kind'] = 'xy_style_geom'
+            # Add geometry information
+            cfg['geometry'] = {
+                'xlabel': ax.get_xlabel() or '',
+                'ylabel': ax.get_ylabel() or '',
+                'xlim': list(ax.get_xlim()),
+                'ylim': list(ax.get_ylim()),
+            }
+            default_ext = '.bpsg'
+        else:
+            print(f"Unknown option: {exp_choice}")
+            return
+        
+        # List existing files for user convenience
         import os
         try:
-            bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+            style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith((default_ext, '.bpcfg'))])
         except Exception:
-            bpcfg_files = []
+            style_files = []
 
-        if bpcfg_files:
-            print("Existing .bpcfg files:")
-            for i, f in enumerate(bpcfg_files, 1):
+        if style_files:
+            print(f"\nExisting {default_ext} files:")
+            for i, f in enumerate(style_files, 1):
                 print(f"  {i}: {f}")
 
-        choice = input("Export style to file? Enter filename or number to overwrite (q=cancel): ").strip()
+        choice = input("Export to file? Enter filename or number to overwrite (q=cancel): ").strip()
         if not choice or choice.lower() == 'q':
             print("Style export canceled.")
             return
 
         # Determine the target path
-        if choice.isdigit() and bpcfg_files and 1 <= int(choice) <= len(bpcfg_files):
-            target_path = bpcfg_files[int(choice) - 1]
+        if choice.isdigit() and style_files and 1 <= int(choice) <= len(style_files):
+            target_path = style_files[int(choice) - 1]
         else:
-            target_path = choice if choice.lower().endswith('.bpcfg') else f"{choice}.bpcfg"
+            # Add default extension if no extension provided
+            if not any(choice.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
+                target_path = f"{choice}{default_ext}"
+            else:
+                target_path = choice
 
         # Only prompt ONCE for overwrite if the file exists
         if os.path.exists(target_path):
@@ -632,6 +663,23 @@ def apply_style_config(
             except Exception as e:
                 print(f"[DEBUG] Exception in ensure_text_visibility: {e}")
 
+        # Apply geometry if present (for .bpsg files)
+        kind = cfg.get('kind', '')
+        if kind == 'xy_style_geom' and 'geometry' in cfg:
+            try:
+                geom = cfg.get('geometry', {})
+                if 'xlabel' in geom and geom['xlabel']:
+                    ax.set_xlabel(geom['xlabel'])
+                if 'ylabel' in geom and geom['ylabel']:
+                    ax.set_ylabel(geom['ylabel'])
+                if 'xlim' in geom and isinstance(geom['xlim'], list) and len(geom['xlim']) == 2:
+                    ax.set_xlim(geom['xlim'][0], geom['xlim'][1])
+                if 'ylim' in geom and isinstance(geom['ylim'], list) and len(geom['ylim']) == 2:
+                    ax.set_ylim(geom['ylim'][0], geom['ylim'][1])
+                print("Applied geometry (labels and limits)")
+            except Exception as e:
+                print(f"Warning: Could not apply geometry: {e}")
+        
         try:
             fig.canvas.draw_idle()
         except Exception as e:

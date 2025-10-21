@@ -71,8 +71,8 @@ def _print_menu():
         "y: y ranges",
     ]
     col3 = [
-        "p: print(export) style",
-        "i: import style",
+        "p: print(export) style/geom",
+        "i: import style/geom",
         "e: export figure",
         "s: save project",
         "b: undo",
@@ -128,6 +128,20 @@ def _rebuild_legend(ax, ax2, file_data):
                 leg.set_visible(False)
     except Exception:
         pass
+
+
+def _get_geometry_snapshot(ax, ax2) -> Dict:
+    """Collects a snapshot of geometry settings (axes labels and limits)."""
+    geom = {
+        'xlim': list(ax.get_xlim()),
+        'ylim_left': list(ax.get_ylim()),
+        'xlabel': ax.get_xlabel() or '',
+        'ylabel_left': ax.get_ylabel() or '',
+    }
+    if ax2 is not None:
+        geom['ylim_right'] = list(ax2.get_ylim())
+        geom['ylabel_right'] = ax2.get_ylabel() or ''
+    return geom
 
 
 def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=None) -> Dict:
@@ -266,7 +280,9 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=Non
                 'ly_minor': _tick_width(ax.yaxis, 'minor'),
                 'ry_major': _tick_width(ax2.yaxis, 'major'),
                 'ry_minor': _tick_width(ax2.yaxis, 'minor'),
-            }
+            },
+            'lengths': dict(getattr(fig, '_tick_lengths', {'major': None, 'minor': None})),
+            'direction': getattr(fig, '_tick_direction', 'out')
         },
         'wasd_state': wasd_state,
         'spines': {
@@ -569,6 +585,24 @@ def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict, file_
             ax2.tick_params(axis='y', which='major', width=widths['ry_major'])
         if widths.get('ry_minor') is not None:
             ax2.tick_params(axis='y', which='minor', width=widths['ry_minor'])
+        
+        # Lengths: apply to both axes
+        lengths = tk.get('lengths', {})
+        if lengths.get('major') is not None:
+            ax.tick_params(axis='both', which='major', length=lengths['major'])
+            ax2.tick_params(axis='both', which='major', length=lengths['major'])
+        if lengths.get('minor') is not None:
+            ax.tick_params(axis='both', which='minor', length=lengths['minor'])
+            ax2.tick_params(axis='both', which='minor', length=lengths['minor'])
+        if lengths:
+            fig._tick_lengths = dict(lengths)
+        
+        # Apply tick direction
+        tick_direction = tk.get('direction', 'out')
+        if tick_direction:
+            setattr(fig, '_tick_direction', tick_direction)
+            ax.tick_params(axis='both', which='both', direction=tick_direction)
+            ax2.tick_params(axis='both', which='both', direction=tick_direction)
     except Exception:
         pass
     try:
@@ -1188,7 +1222,28 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             _print_menu(); continue
         elif key == 'p':
             try:
+                print("Print & Export: ps=style only (.bps), psg=style+geometry (.bpsg), q=cancel")
+                choice = input("p> ").strip().lower()
+                if not choice or choice == 'q':
+                    _print_menu()
+                    continue
+                
                 snap = _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data)
+                
+                if choice == 'ps':
+                    # Style only
+                    snap['kind'] = 'cpc_style'
+                    default_ext = '.bps'
+                elif choice == 'psg':
+                    # Style + Geometry
+                    snap['kind'] = 'cpc_style_geom'
+                    snap['geometry'] = _get_geometry_snapshot(ax, ax2)
+                    default_ext = '.bpsg'
+                else:
+                    print(f"Unknown option: {choice}")
+                    _print_menu()
+                    continue
+                
                 print("\n--- CPC Style (Styles column only) ---")
                 
                 # Figure size (g command)
@@ -1218,6 +1273,8 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 print(f"Tick widths: x_major={ticks.get('x_major_width')}, x_minor={ticks.get('x_minor_width')}")
                 print(f"             ly_major={ticks.get('ly_major_width')}, ly_minor={ticks.get('ly_minor_width')}")
                 print(f"             ry_major={ticks.get('ry_major_width')}, ry_minor={ticks.get('ry_minor_width')}")
+                tick_direction = ticks.get('direction', 'out')
+                print(f"Tick direction: {tick_direction}")
                 
                 # Multi-file colors (c command) - if available
                 multi_files = snap.get('multi_files', [])
@@ -1271,14 +1328,32 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         title_val = _onoff(s.get('title', False))
                         print(f"  {side:<6}: spine={spine_val} major={major_val} minor={minor_val} labels={labels_val} title={title_val}")
                 
+                # Show geometry if included
+                if choice == 'psg':
+                    geom = snap.get('geometry', {})
+                    print("\n--- Geometry ---")
+                    print(f"X-axis label: {geom.get('xlabel', '')}")
+                    print(f"Y-axis label (left): {geom.get('ylabel_left', '')}")
+                    if 'ylabel_right' in geom:
+                        print(f"Y-axis label (right): {geom.get('ylabel_right', '')}")
+                    xlim = geom.get('xlim', [])
+                    if xlim and len(xlim) == 2:
+                        print(f"X limits: {xlim[0]:.4g} to {xlim[1]:.4g}")
+                    ylim_l = geom.get('ylim_left', [])
+                    if ylim_l and len(ylim_l) == 2:
+                        print(f"Y limits (left): {ylim_l[0]:.4g} to {ylim_l[1]:.4g}")
+                    ylim_r = geom.get('ylim_right', [])
+                    if ylim_r and len(ylim_r) == 2:
+                        print(f"Y limits (right): {ylim_r[0]:.4g} to {ylim_r[1]:.4g}")
+                
                 print("--- End Style ---\n")
-                # List existing .bpcfg and allow numeric overwrite on export
+                # List existing files and allow numeric overwrite on export
                 try:
-                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(default_ext) or f.lower().endswith('.bpcfg')])
                 except Exception:
                     files = []
                 if files:
-                    print("Existing .bpcfg files:")
+                    print(f"Existing {default_ext} files:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 sub = input("Style submenu: (e=export, q=return): ").strip().lower()
@@ -1298,9 +1373,9 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                             print("Invalid number."); _print_menu(); continue
                     else:
                         name = choice
-                        root, ext = os.path.splitext(name)
-                        if ext == '':
-                            name = name + '.bpcfg'
+                        # Add default extension if no extension provided
+                        if not any(name.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
+                            name = name + default_ext
                         target = name if os.path.isabs(name) else os.path.join(os.getcwd(), name)
                         if os.path.exists(target):
                             yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
@@ -1316,14 +1391,14 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
         elif key == 'i':
             try:
                 try:
-                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                 except Exception:
                     files = []
                 if files:
-                    print("Available .bpcfg files:")
+                    print("Available style files:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
-                inp = input("Enter number to open or filename (.bpcfg; q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg; q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(); continue
                 push_state("import-style")
@@ -1336,20 +1411,51 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 else:
                     path = inp
                     if not os.path.isfile(path):
-                        root, ext = os.path.splitext(path)
-                        if ext == '':
-                            alt = path + '.bpcfg'
+                        # Try adding extensions
+                        found = False
+                        for ext in ['.bps', '.bpsg', '.bpcfg']:
+                            alt = path if path.lower().endswith(ext) else path + ext
                             if os.path.isfile(alt):
                                 path = alt
-                            else:
-                                print("File not found."); _print_menu(); continue
-                        else:
+                                found = True
+                                break
+                        if not found:
                             print("File not found."); _print_menu(); continue
+                
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                if not isinstance(cfg, dict) or cfg.get('kind') != 'cpc_style':
+                
+                # Check file type
+                kind = cfg.get('kind', '')
+                if kind not in ('cpc_style', 'cpc_style_geom'):
                     print("Not a CPC style file."); _print_menu(); continue
+                
+                has_geometry = (kind == 'cpc_style_geom' and 'geometry' in cfg)
+                
+                # Apply style
                 _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg, file_data)
+                
+                # Apply geometry if present
+                if has_geometry:
+                    try:
+                        geom = cfg.get('geometry', {})
+                        if 'xlabel' in geom and geom['xlabel']:
+                            ax.set_xlabel(geom['xlabel'])
+                        if 'ylabel_left' in geom and geom['ylabel_left']:
+                            ax.set_ylabel(geom['ylabel_left'])
+                        if ax2 is not None and 'ylabel_right' in geom and geom['ylabel_right']:
+                            ax2.set_ylabel(geom['ylabel_right'])
+                        if 'xlim' in geom and isinstance(geom['xlim'], list) and len(geom['xlim']) == 2:
+                            ax.set_xlim(geom['xlim'][0], geom['xlim'][1])
+                        if 'ylim_left' in geom and isinstance(geom['ylim_left'], list) and len(geom['ylim_left']) == 2:
+                            ax.set_ylim(geom['ylim_left'][0], geom['ylim_left'][1])
+                        if ax2 is not None and 'ylim_right' in geom and isinstance(geom['ylim_right'], list) and len(geom['ylim_right']) == 2:
+                            ax2.set_ylim(geom['ylim_right'][0], geom['ylim_right'][1])
+                        print("Applied geometry (labels and limits)")
+                        fig.canvas.draw_idle()
+                    except Exception as e:
+                        print(f"Warning: Could not apply geometry: {e}")
+                        
             except Exception as e:
                 print(f"Error importing style: {e}")
             _print_menu(); continue
@@ -1921,13 +2027,61 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 print("WASD toggles: direction (w/a/s/d) x action (1..5)")
                 print("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title")
                 print("Examples: 'w2 w5' to toggle top ticks and top title; 'd2 d5' for right.")
-                print("Type 'list' to show current state, 'q' to go back.")
+                print("Type 'i' to invert tick direction, 'l' to change tick length, 'list' to show current state, 'q' to go back.")
                 while True:
                     cmd = input("t> ").strip().lower()
                     if not cmd:
                         continue
                     if cmd == 'q':
                         break
+                    if cmd == 'i':
+                        # Invert tick direction (toggle between 'out' and 'in')
+                        push_state("tick-direction")
+                        current_dir = getattr(fig, '_tick_direction', 'out')
+                        new_dir = 'in' if current_dir == 'out' else 'out'
+                        setattr(fig, '_tick_direction', new_dir)
+                        ax.tick_params(axis='both', which='both', direction=new_dir)
+                        ax2.tick_params(axis='both', which='both', direction=new_dir)
+                        print(f"Tick direction: {new_dir}")
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                        continue
+                    if cmd == 'l':
+                        # Change tick length (major and minor automatically set to 70%)
+                        try:
+                            # Get current major tick length from axes
+                            current_major = ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ax.xaxis.get_major_ticks() else 4.0
+                            print(f"Current major tick length: {current_major}")
+                            new_length_str = input("Enter new major tick length (e.g., 6.0): ").strip()
+                            if not new_length_str:
+                                continue
+                            new_major = float(new_length_str)
+                            if new_major <= 0:
+                                print("Length must be positive.")
+                                continue
+                            new_minor = new_major * 0.7  # Auto-set minor to 70%
+                            push_state("tick-length")
+                            # Apply to all four axes on both ax and ax2
+                            ax.tick_params(axis='both', which='major', length=new_major)
+                            ax.tick_params(axis='both', which='minor', length=new_minor)
+                            ax2.tick_params(axis='both', which='major', length=new_major)
+                            ax2.tick_params(axis='both', which='minor', length=new_minor)
+                            # Store for persistence
+                            if not hasattr(fig, '_tick_lengths'):
+                                fig._tick_lengths = {}
+                            fig._tick_lengths.update({'major': new_major, 'minor': new_minor})
+                            print(f"Set major tick length: {new_major}, minor: {new_minor:.2f}")
+                            try:
+                                fig.canvas.draw()
+                            except Exception:
+                                fig.canvas.draw_idle()
+                        except ValueError:
+                            print("Invalid number.")
+                        except Exception as e:
+                            print(f"Error setting tick length: {e}")
+                        continue
                     if cmd == 'list':
                         _print_wasd(); continue
                     parts = cmd.split()
@@ -2023,7 +2177,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 if sub == 'x':
                     current = ax.get_xlabel()
                     print(f"Current x-axis title: '{current}'")
-                    new_title = input("Enter new x-axis title (q=cancel): ").strip()
+                    new_title = input("Enter new x-axis title (q=cancel): ")
                     if new_title and new_title.lower() != 'q':
                         try:
                             push_state("rename-x")
@@ -2042,7 +2196,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 elif sub == 'ly':
                     current = ax.get_ylabel()
                     print(f"Current left y-axis title: '{current}'")
-                    new_title = input("Enter new left y-axis title (q=cancel): ").strip()
+                    new_title = input("Enter new left y-axis title (q=cancel): ")
                     if new_title and new_title.lower() != 'q':
                         try:
                             push_state("rename-ly")
@@ -2056,7 +2210,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 elif sub == 'ry':
                     current = ax2.get_ylabel()
                     print(f"Current right y-axis title: '{current}'")
-                    new_title = input("Enter new right y-axis title (q=cancel): ").strip()
+                    new_title = input("Enter new right y-axis title (q=cancel): ")
                     if new_title and new_title.lower() != 'q':
                         try:
                             push_state("rename-ry")

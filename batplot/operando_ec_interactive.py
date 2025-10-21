@@ -3,7 +3,7 @@
 
 from __future__ import annotations
 
-from typing import Tuple
+from typing import Tuple, Dict
 import json
 import os
 
@@ -19,6 +19,24 @@ from .ui import position_right_ylabel as _ui_position_right_ylabel
 def _get_fig_size(fig) -> Tuple[float, float]:
     w, h = fig.get_size_inches()
     return float(w), float(h)
+
+
+def _get_geometry_snapshot(ax, ec_ax) -> Dict:
+    """Collects a snapshot of geometry settings (axes labels and limits)."""
+    return {
+        'operando': {
+            'xlim': list(ax.get_xlim()),
+            'ylim': list(ax.get_ylim()),
+            'xlabel': ax.get_xlabel() or '',
+            'ylabel': ax.get_ylabel() or '',
+        },
+        'ec': {
+            'xlim': list(ec_ax.get_xlim()),
+            'ylim': list(ec_ax.get_ylim()),
+            'xlabel': ec_ax.get_xlabel() or '',
+            'ylabel': ec_ax.get_ylabel() or '',
+        }
+    }
 
 
 def _ensure_fixed_params(fig, ax, cbar_ax, ec_ax):
@@ -358,8 +376,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         ]
         col4 = [
             "n: crosshair",
-            "p: print(export) style",
-            "i: import style",
+            "p: print(export) style/geom",
+            "i: import style/geom",
             "e: export figure",
             "s: save project",
             "b: undo",
@@ -621,6 +639,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 'font': {'family': list(fam), 'size': fsize},
                 'op_wasd': dict(op_wasd),
                 'ec_wasd': dict(ec_wasd),
+                'tick_lengths': getattr(fig, '_tick_lengths', None),
+                'tick_direction': getattr(fig, '_tick_direction', 'out'),
             })
             if len(state_history) > 40:
                 state_history.pop(0)
@@ -867,6 +887,29 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         ec_ax._right_ylabel_artist.set_visible(False)
                 except Exception:
                     pass
+            except Exception:
+                pass
+            # Restore tick lengths
+            try:
+                tick_lengths = snap.get('tick_lengths')
+                if tick_lengths and isinstance(tick_lengths, dict):
+                    major = tick_lengths.get('major')
+                    minor = tick_lengths.get('minor')
+                    if major is not None:
+                        ax.tick_params(axis='both', which='major', length=major)
+                        ec_ax.tick_params(axis='both', which='major', length=major)
+                    if minor is not None:
+                        ax.tick_params(axis='both', which='minor', length=minor)
+                        ec_ax.tick_params(axis='both', which='minor', length=minor)
+                    fig._tick_lengths = tick_lengths
+            except Exception:
+                pass
+            # Restore tick direction
+            try:
+                tick_dir = snap.get('tick_direction', 'out')
+                ax.tick_params(axis='both', which='both', direction=tick_dir)
+                ec_ax.tick_params(axis='both', which='both', direction=tick_dir)
+                fig._tick_direction = tick_dir
             except Exception:
                 pass
             try:
@@ -1481,13 +1524,61 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 
                 print("WASD toggles: direction (w/a/s/d) x action (1..5)")
                 print("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title")
-                print("Type 'list' for state, 'q' to return.")
+                print("Type 'i' to invert tick direction, 'l' to change tick length, 'list' for state, 'q' to return.")
                 while True:
                     cmd2 = input("Toggle> ").strip().lower()
                     if not cmd2:
                         continue
                     if cmd2 == 'q':
                         break
+                    if cmd2 == 'i':
+                        # Invert tick direction (toggle between 'out' and 'in')
+                        push_state("tick-direction")
+                        current_dir = getattr(fig, '_tick_direction', 'out')
+                        new_dir = 'in' if current_dir == 'out' else 'out'
+                        setattr(fig, '_tick_direction', new_dir)
+                        ax.tick_params(axis='both', which='both', direction=new_dir)
+                        ec_ax.tick_params(axis='both', which='both', direction=new_dir)
+                        print(f"Tick direction: {new_dir}")
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                        continue
+                    if cmd2 == 'l':
+                        # Change tick length (major and minor automatically set to 70%)
+                        try:
+                            # Get current major tick length from axes
+                            current_major = ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ax.xaxis.get_major_ticks() else 4.0
+                            print(f"Current major tick length: {current_major}")
+                            new_length_str = input("Enter new major tick length (e.g., 6.0): ").strip()
+                            if not new_length_str:
+                                continue
+                            new_major = float(new_length_str)
+                            if new_major <= 0:
+                                print("Length must be positive.")
+                                continue
+                            new_minor = new_major * 0.7  # Auto-set minor to 70%
+                            push_state("tick-length")
+                            # Apply to all four axes on both ax and ec_ax
+                            ax.tick_params(axis='both', which='major', length=new_major)
+                            ax.tick_params(axis='both', which='minor', length=new_minor)
+                            ec_ax.tick_params(axis='both', which='major', length=new_major)
+                            ec_ax.tick_params(axis='both', which='minor', length=new_minor)
+                            # Store for persistence
+                            if not hasattr(fig, '_tick_lengths'):
+                                fig._tick_lengths = {}
+                            fig._tick_lengths.update({'major': new_major, 'minor': new_minor})
+                            print(f"Set major tick length: {new_major}, minor: {new_minor:.2f}")
+                            try:
+                                fig.canvas.draw()
+                            except Exception:
+                                fig.canvas.draw_idle()
+                        except ValueError:
+                            print("Invalid number.")
+                        except Exception as e:
+                            print(f"Error setting tick length: {e}")
+                        continue
                     if cmd2 == 'list':
                         def b(v): return 'ON ' if bool(v) else 'off'
                         # Show which sides are available for this pane
@@ -1597,18 +1688,70 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"Current normalized intensity range: {cur[0]:.4g} {cur[1]:.4g}")
             except Exception:
                 print("Could not retrieve current intensity range")
-            line = input("New intensity range (min max, blank=cancel): ").strip()
+            
+            # Calculate auto-normalized range based on current x-range
+            try:
+                arr = np.asarray(im.get_array(), dtype=float)
+                if arr.ndim == 2 and arr.size > 0:
+                    H, W = arr.shape
+                    x0, x1, y0, y1 = im.get_extent()
+                    xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
+                    ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
+                    xl = ax.get_xlim(); yl = ax.get_ylim()
+                    xlo, xhi = (min(xl), max(xl))
+                    ylo, yhi = (min(yl), max(yl))
+                    
+                    # Map to pixel indices
+                    if xmax > xmin:
+                        c0 = int(np.floor((xlo - xmin) / (xmax - xmin) * (W - 1)))
+                        c1 = int(np.ceil((xhi - xmin) / (xmax - xmin) * (W - 1)))
+                    else:
+                        c0, c1 = 0, W - 1
+                    if ymax > ymin:
+                        r0 = int(np.floor((ylo - ymin) / (ymax - ymin) * (H - 1)))
+                        r1 = int(np.ceil((yhi - ymin) / (ymax - ymin) * (H - 1)))
+                    else:
+                        r0, r1 = 0, H - 1
+                    
+                    c0 = max(0, min(W - 1, c0)); c1 = max(0, min(W - 1, c1))
+                    r0 = max(0, min(H - 1, r0)); r1 = max(0, min(H - 1, r1))
+                    if c1 < c0: c0, c1 = c1, c0
+                    if r1 < r0: r0, r1 = r1, r0
+                    view = arr[r0:r1+1, c0:c1+1]
+                    finite = view[np.isfinite(view)]
+                    if finite.size:
+                        auto_lo = float(np.min(finite))
+                        auto_hi = float(np.max(finite))
+                        print(f"Auto-normalized range (based on current x-range): {auto_lo:.4g} {auto_hi:.4g}")
+                    else:
+                        print("Auto-normalization unavailable (no finite data in view)")
+                else:
+                    print("Auto-normalization unavailable")
+            except Exception:
+                print("Auto-normalization unavailable")
+            
+            line = input("New intensity range (min max, a=auto, blank=cancel): ").strip()
             if line:
                 _snapshot("operando-intensity-range")
                 try:
-                    lo, hi = map(float, line.split())
-                    im.set_clim(lo, hi)
-                    try:
-                        if cbar is not None:
-                            cbar.update_normal(im)
-                    except Exception:
-                        pass
-                    fig.canvas.draw_idle()
+                    if line.lower() == 'a':
+                        # Apply auto-normalization
+                        _renormalize_to_visible()
+                        fig.canvas.draw_idle()
+                        try:
+                            new_cur = im.get_clim()
+                            print(f"Applied auto-normalized range: {new_cur[0]:.4g} {new_cur[1]:.4g}")
+                        except Exception:
+                            print("Auto-normalization applied")
+                    else:
+                        lo, hi = map(float, line.split())
+                        im.set_clim(lo, hi)
+                        try:
+                            if cbar is not None:
+                                cbar.update_normal(im)
+                        except Exception:
+                            pass
+                        fig.canvas.draw_idle()
                 except Exception as e:
                     print(f"Invalid range: {e}")
             print_menu()
@@ -1683,6 +1826,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             #   g:  canvas size
             #   r:  reverse Y-axis orientation
             try:
+                print("Print & Export: ps=style only (.bps), psg=style+geometry (.bpsg), q=cancel")
+                choice = input("p> ").strip().lower()
+                if not choice or choice == 'q':
+                    print_menu()
+                    continue
+                
+                if choice not in ('ps', 'psg'):
+                    print(f"Unknown option: {choice}")
+                    print_menu()
+                    continue
+                
                 # Gather style
                 fig_w, fig_h = _get_fig_size(fig)
                 cb_w_in, cb_gap_in, ec_gap_in, ec_w_in, ax_w_in, ax_h_in = _ensure_fixed_params(fig, ax, cbar.ax, ec_ax)
@@ -1898,64 +2052,133 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     op_reversed = bool(op_ylim_cur[0] > op_ylim_cur[1])
                     ec_reversed = bool(ec_ylim_cur[0] > ec_ylim_cur[1])
                     
-                    cfg = {
-                        'kind': 'operando_ec_style',
-                        'version': 2,
-                        'figure': {'canvas_size': [fig_w, fig_h]},
-                        'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
-                        'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed},
-                        'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed},
-                        'font': {'family': fam, 'size': fsize},
-                    }
+                    # Build config based on choice
+                    if choice == 'ps':
+                        cfg = {
+                            'kind': 'operando_ec_style',
+                            'version': 2,
+                            'figure': {'canvas_size': [fig_w, fig_h]},
+                            'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed},
+                            'font': {'family': fam, 'size': fsize},
+                        }
+                        default_ext = '.bps'
+                    else:  # psg
+                        cfg = {
+                            'kind': 'operando_ec_style_geom',
+                            'version': 2,
+                            'figure': {'canvas_size': [fig_w, fig_h]},
+                            'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed},
+                            'font': {'family': fam, 'size': fsize},
+                            'axes_geometry': _get_geometry_snapshot(ax, ec_ax),
+                        }
+                        default_ext = '.bpsg'
+                        # Print geometry info
+                        geom = cfg['axes_geometry']
+                        print("\n--- Geometry ---")
+                        print(f"Operando X label: {geom['operando']['xlabel']}")
+                        print(f"Operando Y label: {geom['operando']['ylabel']}")
+                        print(f"Operando X limits: {geom['operando']['xlim'][0]:.4g} to {geom['operando']['xlim'][1]:.4g}")
+                        print(f"Operando Y limits: {geom['operando']['ylim'][0]:.4g} to {geom['operando']['ylim'][1]:.4g}")
+                        print(f"EC X label: {geom['ec']['xlabel']}")
+                        print(f"EC Y label: {geom['ec']['ylabel']}")
+                        print(f"EC X limits: {geom['ec']['xlim'][0]:.4g} to {geom['ec']['xlim'][1]:.4g}")
+                        print(f"EC Y limits: {geom['ec']['ylim'][0]:.4g} to {geom['ec']['ylim'][1]:.4g}")
+                    
+                    # List existing files
                     try:
-                        if target:
-                            with open(target, 'w', encoding='utf-8') as f:
-                                json.dump(cfg, f, indent=2)
-                            print(f"Exported style to {target}")
+                        _style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(default_ext) or f.lower().endswith('.bpcfg')])
+                    except Exception:
+                        _style_files = []
+                    if _style_files:
+                        print(f"\nExisting {default_ext} files:")
+                        for _i, _f in enumerate(_style_files, 1):
+                            print(f"  {_i}: {_f}")
+                    
+                    try:
+                        sub = input("Style: (e=export, q=return): ").strip().lower()
+                        if sub == 'e':
+                            choice_name = input("Enter new filename or number to overwrite (q=cancel): ").strip()
+                            if not choice_name or choice_name.lower() == 'q':
+                                print_menu(); continue
+                            target = None
+                            if choice_name.isdigit() and _style_files:
+                                _idx = int(choice_name)
+                                if 1 <= _idx <= len(_style_files):
+                                    name = _style_files[_idx-1]
+                                    yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
+                                    if yn == 'y':
+                                        target = os.path.join(os.getcwd(), name)
+                                else:
+                                    print("Invalid number."); print_menu(); continue
+                            else:
+                                name = choice_name
+                                # Add default extension if no extension provided
+                                if not any(name.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
+                                    name = name + default_ext
+                                target = name if os.path.isabs(name) else os.path.join(os.getcwd(), name)
+                                if os.path.exists(target):
+                                    yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
+                                    if yn != 'y':
+                                        target = None
+                            if target:
+                                with open(target, 'w', encoding='utf-8') as f:
+                                    json.dump(cfg, f, indent=2)
+                                print(f"Exported style to {target}")
                     except Exception as e:
                         print(f"Export failed: {e}")
             except Exception as e:
                 print(f"Error while printing/exporting style: {e}")
             print_menu()
         elif cmd == 'i':
-            # Load a .bpcfg style and apply
+            # Load a .bps/.bpsg/.bpcfg style and apply
             # Applies style properties from commands: oc, ow, ew, h, el, t, l, f, g, r
             try:
                 try:
-                    _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    _style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                 except Exception:
-                    _bpcfg_files = []
-                if _bpcfg_files:
-                    print("Available .bpcfg files:")
-                    for _i, _f in enumerate(_bpcfg_files, 1):
+                    _style_files = []
+                if _style_files:
+                    print("Available style files:")
+                    for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number to open or filename (.bpcfg): ").strip()
-                if not inp:
+                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg, q=cancel): ").strip()
+                if not inp or inp.lower() == 'q':
                     print_menu(); continue
                 _snapshot("import-style")
-                if inp.isdigit() and _bpcfg_files:
+                if inp.isdigit() and _style_files:
                     _idx = int(inp)
-                    if 1 <= _idx <= len(_bpcfg_files):
-                        path = os.path.join(os.getcwd(), _bpcfg_files[_idx-1])
+                    if 1 <= _idx <= len(_style_files):
+                        path = os.path.join(os.getcwd(), _style_files[_idx-1])
                     else:
                         print("Invalid number."); print_menu(); continue
                 else:
                     path = inp
                     if not os.path.isfile(path):
-                        root, ext = os.path.splitext(path)
-                        if ext == '':
-                            alt = path + '.bpcfg'
+                        # Try adding extensions
+                        found = False
+                        for ext in ['.bps', '.bpsg', '.bpcfg']:
+                            alt = path if path.lower().endswith(ext) else path + ext
                             if os.path.isfile(alt):
                                 path = alt
-                            else:
-                                print("File not found."); print_menu(); continue
-                        else:
+                                found = True
+                                break
+                        if not found:
                             print("File not found."); print_menu(); continue
+                
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                if not isinstance(cfg, dict) or cfg.get('kind') != 'operando_ec_style':
+                
+                # Check file type
+                kind = cfg.get('kind', '')
+                if kind not in ('operando_ec_style', 'operando_ec_style_geom'):
                     print("Not an operando+EC style file.")
                     print_menu(); continue
+                
+                has_geometry = (kind == 'operando_ec_style_geom' and 'axes_geometry' in cfg)
                 # Version check (support both v1 and v2)
                 version = cfg.get('version', 1)
                 
@@ -2228,6 +2451,37 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     fig.canvas.draw()
                 except Exception:
                     fig.canvas.draw_idle()
+                
+                # Apply geometry if present
+                if has_geometry:
+                    try:
+                        geom = cfg.get('axes_geometry', {})
+                        op_geom = geom.get('operando', {})
+                        ec_geom = geom.get('ec', {})
+                        
+                        if op_geom.get('xlabel'):
+                            ax.set_xlabel(op_geom['xlabel'])
+                        if op_geom.get('ylabel'):
+                            ax.set_ylabel(op_geom['ylabel'])
+                        if 'xlim' in op_geom and isinstance(op_geom['xlim'], list) and len(op_geom['xlim']) == 2:
+                            ax.set_xlim(op_geom['xlim'][0], op_geom['xlim'][1])
+                        if 'ylim' in op_geom and isinstance(op_geom['ylim'], list) and len(op_geom['ylim']) == 2:
+                            ax.set_ylim(op_geom['ylim'][0], op_geom['ylim'][1])
+                        
+                        if ec_geom.get('xlabel'):
+                            ec_ax.set_xlabel(ec_geom['xlabel'])
+                        if ec_geom.get('ylabel'):
+                            ec_ax.set_ylabel(ec_geom['ylabel'])
+                        if 'xlim' in ec_geom and isinstance(ec_geom['xlim'], list) and len(ec_geom['xlim']) == 2:
+                            ec_ax.set_xlim(ec_geom['xlim'][0], ec_geom['xlim'][1])
+                        if 'ylim' in ec_geom and isinstance(ec_geom['ylim'], list) and len(ec_geom['ylim']) == 2:
+                            ec_ax.set_ylim(ec_geom['ylim'][0], ec_geom['ylim'][1])
+                        
+                        print("Applied geometry (labels and limits)")
+                        fig.canvas.draw_idle()
+                    except Exception as e:
+                        print(f"Warning: Could not apply geometry: {e}")
+                
                 print(f"Applied style from {path}")
             except Exception as e:
                 print(f"Load style failed: {e}")
@@ -2246,7 +2500,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         break
                     if sub == 'x':
                         cur = ax.get_xlabel() or ''
-                        lab = input(f"New operando X label (blank=cancel, current='{cur}'): ").strip()
+                        lab = input(f"New operando X label (blank=cancel, current='{cur}'): ")
                         if lab:
                             _snapshot("rename-op-x")
                             try:
@@ -2259,7 +2513,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 pass
                     elif sub == 'y':
                         cur = ax.get_ylabel() or ''
-                        lab = input(f"New operando Y label (blank=cancel, current='{cur}'): ").strip()
+                        lab = input(f"New operando Y label (blank=cancel, current='{cur}'): ")
                         if lab:
                             _snapshot("rename-op-y")
                             try:
@@ -2291,7 +2545,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         break
                     if sub == 'x':
                         cur = ec_ax.get_xlabel() or ''
-                        lab = input(f"New EC X label (blank=cancel, current='{cur}'): ").strip()
+                        lab = input(f"New EC X label (blank=cancel, current='{cur}'): ")
                         if lab:
                             _snapshot("rename-ec-x")
                             try:
@@ -2303,7 +2557,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 pass
                     elif sub == 'y':
                         cur = ec_ax.get_ylabel() or ''
-                        lab = input(f"New EC Y label (blank=cancel, current='{cur}'): ").strip()
+                        lab = input(f"New EC Y label (blank=cancel, current='{cur}'): ")
                         if lab:
                             _snapshot("rename-ec-y")
                             try:

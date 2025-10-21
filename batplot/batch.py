@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import json
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -14,6 +15,152 @@ from .readers import (
     read_ec_csv_dqdv_file,
 )
 from .utils import _confirm_overwrite
+
+
+def _load_style_file(style_path: str) -> dict | None:
+    """Load a .bps, .bpsg, or .bpcfg style file.
+    
+    Args:
+        style_path: Path to style configuration file
+        
+    Returns:
+        Style configuration dict or None if loading fails
+    """
+    try:
+        with open(style_path, 'r', encoding='utf-8') as f:
+            cfg = json.load(f)
+        return cfg
+    except Exception as e:
+        print(f"Warning: Could not load style file {style_path}: {e}")
+        return None
+
+
+def _apply_ec_style(fig, ax, cfg: dict):
+    """Apply style configuration to an EC batch plot.
+    
+    Applies formatting from .bps/.bpsg files including fonts, colors,
+    tick parameters, and geometry (if present in .bpsg files).
+    
+    Args:
+        fig: Matplotlib figure object
+        ax: Matplotlib axes object
+        cfg: Style configuration dictionary
+    """
+    try:
+        # Apply fonts
+        font_cfg = cfg.get('font', {})
+        if font_cfg:
+            family = font_cfg.get('family')
+            size = font_cfg.get('size')
+            if family:
+                plt.rcParams['font.sans-serif'] = [family] if isinstance(family, str) else family
+            if size is not None:
+                plt.rcParams['font.size'] = size
+        
+        # Apply figure size if present
+        fig_cfg = cfg.get('figure', {})
+        if fig_cfg:
+            canvas_size = fig_cfg.get('canvas_size')
+            if canvas_size and isinstance(canvas_size, (list, tuple)) and len(canvas_size) == 2:
+                try:
+                    fig.set_size_inches(canvas_size[0], canvas_size[1])
+                except Exception:
+                    pass
+        
+        # Apply tick parameters
+        ticks_cfg = cfg.get('ticks', {})
+        if ticks_cfg:
+            # Tick widths
+            widths = ticks_cfg.get('widths', {})
+            if widths.get('x_major') is not None:
+                ax.tick_params(axis='x', which='major', width=widths['x_major'])
+            if widths.get('x_minor') is not None:
+                ax.tick_params(axis='x', which='minor', width=widths['x_minor'])
+            if widths.get('y_major') is not None or widths.get('ly_major') is not None:
+                w = widths.get('y_major') or widths.get('ly_major')
+                ax.tick_params(axis='y', which='major', width=w)
+            if widths.get('y_minor') is not None or widths.get('ly_minor') is not None:
+                w = widths.get('y_minor') or widths.get('ly_minor')
+                ax.tick_params(axis='y', which='minor', width=w)
+            
+            # Tick lengths
+            lengths = ticks_cfg.get('lengths', {})
+            if lengths.get('major') is not None:
+                ax.tick_params(axis='both', which='major', length=lengths['major'])
+            if lengths.get('minor') is not None:
+                ax.tick_params(axis='both', which='minor', length=lengths['minor'])
+            
+            # Tick direction
+            direction = ticks_cfg.get('direction')
+            if direction:
+                ax.tick_params(axis='both', which='both', direction=direction)
+        
+        # Apply geometry if present (for .bpsg files)
+        kind = cfg.get('kind', '')
+        if 'geom' in kind.lower() and 'geometry' in cfg:
+            geom = cfg.get('geometry', {})
+            if geom.get('xlabel'):
+                ax.set_xlabel(geom['xlabel'])
+            if geom.get('ylabel'):
+                ax.set_ylabel(geom['ylabel'])
+            if 'xlim' in geom and isinstance(geom['xlim'], (list, tuple)) and len(geom['xlim']) == 2:
+                try:
+                    ax.set_xlim(geom['xlim'][0], geom['xlim'][1])
+                except Exception:
+                    pass
+            if 'ylim' in geom and isinstance(geom['ylim'], (list, tuple)) and len(geom['ylim']) == 2:
+                try:
+                    ax.set_ylim(geom['ylim'][0], geom['ylim'][1])
+                except Exception:
+                    pass
+        
+        # Apply line colors if available (for GC/CV/dQdV modes)
+        lines_cfg = cfg.get('lines', [])
+        if lines_cfg and len(ax.lines) > 0:
+            for entry in lines_cfg:
+                idx = entry.get('index')
+                if idx is not None and 0 <= idx < len(ax.lines):
+                    ln = ax.lines[idx]
+                    if 'color' in entry:
+                        try:
+                            ln.set_color(entry['color'])
+                        except Exception:
+                            pass
+                    if 'linewidth' in entry:
+                        try:
+                            ln.set_linewidth(entry['linewidth'])
+                        except Exception:
+                            pass
+                    if 'linestyle' in entry:
+                        try:
+                            ln.set_linestyle(entry['linestyle'])
+                        except Exception:
+                            pass
+        
+        # Apply spine configuration
+        spines_cfg = cfg.get('spines', {})
+        for spine_name, spine_props in spines_cfg.items():
+            if spine_name in ax.spines:
+                sp = ax.spines[spine_name]
+                if 'lw' in spine_props or 'linewidth' in spine_props:
+                    try:
+                        lw = spine_props.get('lw') or spine_props.get('linewidth')
+                        sp.set_linewidth(lw)
+                    except Exception:
+                        pass
+                if 'color' in spine_props:
+                    try:
+                        sp.set_edgecolor(spine_props['color'])
+                    except Exception:
+                        pass
+                if 'visible' in spine_props:
+                    try:
+                        sp.set_visible(spine_props['visible'])
+                    except Exception:
+                        pass
+        
+    except Exception as e:
+        print(f"Warning: Error applying style: {e}")
 
 
 def batch_process(directory: str, args):
@@ -168,14 +315,43 @@ def batch_process_ec(directory: str, args):
     Supports GC (.mpt/.csv), CV (.mpt), dQdV (.csv), and CPC (.mpt/.csv) modes.
     Exports SVG plots to batplot_svg subdirectory.
     
+    Can apply style/geometry from .bps/.bpsg files using --all flag:
+        batplot --all --gc style.bps       # Apply style.bps to all .mpt/.csv GC files
+        batplot --all --cv style.bpsg      # Apply style+geom to all CV files
+        batplot --all --dqdv mystyle.bps   # Apply style to all dQdV files
+        batplot --all --cpc config.bpsg    # Apply to all CPC files
+    
     Note: For GC and CPC modes with .csv files, --mass is not required as the
     capacity data is already in the file. For .mpt files, --mass is required.
     
     Args:
         directory: Directory containing EC files
-        args: Argument namespace with mode flags (gc, cv, dqdv, cpc) and mass
+        args: Argument namespace with mode flags (gc, cv, dqdv, cpc), mass, and all
     """
     print(f"EC Batch mode: scanning {directory}")
+    
+    # Check if --all flag was used with a style file
+    style_cfg = None
+    style_file_arg = getattr(args, 'all', None)
+    if style_file_arg and style_file_arg != 'all':
+        # User provided a style file path
+        style_path = style_file_arg if os.path.isabs(style_file_arg) else os.path.join(directory, style_file_arg)
+        if os.path.exists(style_path) and style_path.lower().endswith(('.bps', '.bpsg', '.bpcfg')):
+            style_cfg = _load_style_file(style_path)
+            if style_cfg:
+                print(f"Using style file: {os.path.basename(style_path)}")
+        else:
+            # Try to find the file in current directory
+            for ext in ['.bps', '.bpsg', '.bpcfg']:
+                test_path = style_file_arg if style_file_arg.endswith(ext) else style_file_arg + ext
+                test_full = os.path.join(directory, test_path)
+                if os.path.exists(test_full):
+                    style_cfg = _load_style_file(test_full)
+                    if style_cfg:
+                        print(f"Using style file: {os.path.basename(test_full)}")
+                    break
+            if not style_cfg:
+                print(f"Warning: Could not find style file '{style_file_arg}'")
     
     # Determine which EC mode is active
     mode = None
@@ -489,6 +665,13 @@ def batch_process_ec(directory: str, args):
                 ax_b.set_ylabel(x_label)
                 ax_b.legend()
                 ax_b.set_title(f"{fname}")
+            
+            # Apply style/geometry if provided via --all flag
+            if style_cfg:
+                try:
+                    _apply_ec_style(fig_b, ax_b, style_cfg)
+                except Exception as e:
+                    print(f"  Warning: Could not apply style to {fname}: {e}")
             
             # Adjust layout and save
             fig_b.subplots_adjust(left=0.18, right=0.97, bottom=0.16, top=0.90)

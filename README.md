@@ -58,6 +58,12 @@ batplot --gc all         # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
 batplot --cv all                    # All .mpt files (CV mode)
 batplot --dqdv all                  # All .csv files (dQdV mode)
 batplot --cpc all --mass 6.2        # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
+
+# Batch processing with style/geometry: apply consistent formatting to all files
+batplot --all mystyle.bps --gc --mass 7.0   # Apply .bps style to all GC files
+batplot --all config.bpsg --cv              # Apply .bpsg style+geometry to all CV files
+batplot --all style.bps --dqdv              # Apply style to all dQdV files
+batplot --all geom.bpsg --cpc --mass 5.4    # Apply style+geometry to all CPC files
 ```
 
 ### Operando Analysis

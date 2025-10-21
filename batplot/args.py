@@ -23,6 +23,8 @@ def _print_general_help() -> None:
     "    batplot --gc FILE.mpt --mass 7.0       # EC GC from .mpt (requires --mass mg)\n"
     "    batplot --gc FILE.csv                  # EC GC from supported .csv (no mass required)\n"
     "    batplot --gc all --mass 7.0            # Batch: all .mpt/.csv in directory (.mpt needs --mass)\n"
+    "    batplot --all --gc style.bps --mass 7  # Batch with style: apply style.bps to all GC files\n"
+    "    batplot --all --cv config.bpsg         # Batch with style+geom: apply to all CV files\n"
     "    batplot --dqdv FILE.csv                # EC dQ/dV from supported .csv\n"
     "    batplot --dqdv all                     # Batch: all .csv in directory (dQdV mode)\n"
     "    batplot --cv FILE.mpt                  # EC CV (cyclic voltammetry) from .mpt\n"
@@ -34,7 +36,8 @@ def _print_general_help() -> None:
         "  • Quick plotting with sensible defaults, no config files needed\n"
         "  • Supports many common file formats (see -h xy/ec/op)\n"
         "  • Interactive menus (--interactive): styling, ranges, fonts, export, sessions\n"
-        "  • Batch processing: use 'all' or directory path with any mode\n\n"
+        "  • Batch processing: use 'all' or directory path with any mode\n"
+        "  • Batch styling: apply .bps/.bpsg files to all exports (use --all flag)\n\n"
     
         "More help:\n"
         "  batplot -h xy   # XY file plotting guide\n"
@@ -93,6 +96,11 @@ def _print_ec_help() -> None:
         "  batplot --dqdv all                     # All .csv files (dQdV mode)\n"
         "  batplot --cpc all --mass 5.4           # All .mpt/.csv files (.mpt requires --mass)\n"
         "  batplot --gc /path/to/folder --mass 6  # Process specific directory\n\n"
+        "Batch mode with style/geometry: Apply .bps/.bpsg files to all batch exports.\n"
+        "  batplot --all --gc style.bps --mass 7  # Apply style to all GC plots\n"
+        "  batplot --all --cv config.bpsg         # Apply style+geometry to all CV plots\n"
+        "  batplot --all --dqdv my.bps            # Apply style to all dQdV plots\n"
+        "  batplot --all --cpc geom.bpsg --mass 6 # Apply style+geom to all CPC plots\n\n"
         "Interactive (--interactive): choose cycles, colors/palettes, line widths, axis scales (linear/log/symlog),\n"
         "rename axes, toggle ticks/titles/spines, print/export/import style (.bpcfg), save session (.pkl).\n"
         "Note: Batch mode exports SVG files automatically; --interactive is for single-file plotting only.\n"
@@ -139,6 +147,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--dqdv", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--cv", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--cpc", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--all", type=str, nargs='?', const='all', help=argparse.SUPPRESS)
     return parser
 
 

@@ -98,6 +98,11 @@ def batplot_main() -> int:
         getattr(args, 'cpc', False)
     ])
     
+    # Check for --all flag (with or without style file)
+    if ec_mode_active and getattr(args, 'all', None) is not None:
+        batch_process_ec(os.getcwd(), args)
+        exit()
+    
     if ec_mode_active and len(args.files) == 1:
         sole = args.files[0]
         if sole.lower() == 'all':
@@ -1362,6 +1367,23 @@ def batplot_main() -> int:
                 ax.tick_params(axis='y', which='minor', width=tw['y_minor'])
         except Exception:
             pass
+        # Tick lengths restore
+        try:
+            tl = sess.get('tick_lengths', {})
+            if tl.get('x_major') is not None or tl.get('y_major') is not None:
+                major_len = tl.get('x_major') or tl.get('y_major')
+                ax.tick_params(axis='both', which='major', length=major_len)
+                if not hasattr(fig, '_tick_lengths'):
+                    fig._tick_lengths = {}
+                fig._tick_lengths['major'] = major_len
+            if tl.get('x_minor') is not None or tl.get('y_minor') is not None:
+                minor_len = tl.get('x_minor') or tl.get('y_minor')
+                ax.tick_params(axis='both', which='minor', length=minor_len)
+                if not hasattr(fig, '_tick_lengths'):
+                    fig._tick_lengths = {}
+                fig._tick_lengths['minor'] = minor_len
+        except Exception:
+            pass
         # Rebuild label texts
         for i, lab in enumerate(labels_list):
             txt = ax.text(1.0, 1.0, f"{i+1}: {lab}", ha='right', va='top', transform=ax.transAxes,
@@ -1374,6 +1396,7 @@ def batplot_main() -> int:
         cif_numbering_enabled = True
         cif_extend_suspended = False
         show_cif_hkl = sess.get('show_cif_hkl', False)
+        show_cif_titles = sess.get('show_cif_titles', True)
         # Provide minimal stubs to satisfy interactive menu dependencies
         # Axis mode restoration informs downstream toggles (e.g., CIF conversions, crosshair availability)
         axis_mode_restored = sess.get('axis_mode', 'unknown')
@@ -1652,6 +1675,8 @@ def batplot_main() -> int:
         if args.xaxis and args.xaxis.lower() in ("2theta","two_theta","tth"):
             axis_mode = "2theta"
         else:
+            # If wavelength is provided, user wants to convert to Q
+            # CIF files are in Q space
             axis_mode = "Q"
     elif args.xaxis:
         axis_mode = args.xaxis
@@ -1664,6 +1689,16 @@ def batplot_main() -> int:
     use_E   = axis_mode == "energy"
     use_k   = axis_mode == "k"      # NEW
     use_rft = axis_mode == "rft"    # NEW
+
+    # Validate: if using 2theta mode with CIF files, wavelength is required
+    if use_2th and any_cif and not wavelength_file:
+        raise ValueError(
+            "Cannot display CIF files in 2θ mode without wavelength.\n"
+            "Please provide wavelength using:\n"
+            "  --wl <wavelength_in_angstrom>\n"
+            "  or include wavelength in filename (e.g., data_wl1.5406.xy)\n"
+            "  or use Q mode (remove --xaxis 2theta)"
+        )
 
     # ---------------- Read and plot files ----------------
     # Helper to extract discrete peak positions from a simulated CIF pattern by local maxima picking
@@ -1702,6 +1737,7 @@ def batplot_main() -> int:
     # Cached wavelength for CIF tick conversion (prevents interactive blocking prompts)
     cif_cached_wavelength = None
     show_cif_hkl = False
+    show_cif_titles = True  # show CIF filename labels by default
 
     for idx_file, file_entry in enumerate(args.files):
         parts = file_entry.split(":")
@@ -2058,10 +2094,12 @@ def batplot_main() -> int:
                     ln, = ax.plot([p,p],[y_line, y_line+0.02*yr], color=color, lw=1.0, alpha=0.9, zorder=3)
                     new_art.append(ln)
             # Removed numbering; keep space padding (placed per CIF row)
-            label_text = f" {lab}"
-            txt = ax.text(ax.get_xlim()[0], y_line + 0.005*yr, label_text,
-                          ha='left', va='bottom', fontsize=max(8,int(0.55*plt.rcParams.get('font.size',12))), color=color)
-            new_art.append(txt)
+            # Only add title label if show_cif_titles is True
+            if globals().get('show_cif_titles', True):
+                label_text = f" {lab}"
+                txt = ax.text(ax.get_xlim()[0], y_line + 0.005*yr, label_text,
+                              ha='left', va='bottom', fontsize=max(8,int(0.55*plt.rcParams.get('font.size',12))), color=color)
+                new_art.append(txt)
         ax._cif_tick_art = new_art
         # Store simplified metadata for hover: list of dicts with 'x','y','label'
         hover_meta = []
@@ -2264,6 +2302,7 @@ def batplot_main() -> int:
             'cif_hkl_map': cif_hkl_map,
             'cif_hkl_label_map': cif_hkl_label_map,
             'show_cif_hkl': show_cif_hkl,
+            'show_cif_titles': show_cif_titles,
             'cif_extend_suspended': cif_extend_suspended,
             'keep_canvas_fixed': keep_canvas_fixed,
         }

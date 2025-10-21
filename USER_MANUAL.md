@@ -1,5 +1,5 @@
 # batplot User Manual
-**v1.1.1, 2025-01-16**
+**v1.3.0, 2025-10-21**
 
 Batplot is a lightweight CLI tool for plotting XRD, PDF, XAS, electrochemistry, and operando data, featuring interactive and batch modes.
 The electrochemistry and operando plotting functions are inspired by the script written by Amalie, Erlend and Casper.
@@ -147,6 +147,38 @@ batplot --cpc all --mass 5.4
 batplot --gc /path/to/folder --mass 6.0
 # Process files in specific directory
 ```
+
+### Batch Mode with Style/Geometry
+
+Apply consistent formatting to all EC files using `.bps` (style) or `.bpsg` (style+geometry) configuration files:
+
+```bash
+batplot --all mystyle.bps --gc --mass 7.0
+# Apply style.bps formatting to all GC files in current directory
+# Applies: fonts, colors, line widths, tick parameters, spine properties
+
+batplot --all config.bpsg --cv
+# Apply style+geometry to all CV files
+# Applies: all style elements PLUS axis labels and limits
+
+batplot --all style.bps --dqdv
+# Apply style to all dQdV files
+
+batplot --all geom.bpsg --cpc --mass 5.4
+# Apply style+geometry to all CPC files
+```
+
+**Workflow: Create Once, Apply to All**
+1. Create a perfect plot interactively: `batplot file.mpt --gc --mass 7.0 --interactive`
+2. Adjust formatting (fonts, colors, ticks, geometry) as desired
+3. Export style: Press `p` → `ps` (style only) or `psg` (style+geometry)
+4. Apply to all files: `batplot --all mystyle.bps --gc --mass 7.0`
+5. All files in directory now have identical, publication-ready formatting!
+
+**Style Files:**
+- `.bps` files contain style settings: fonts, colors, line widths, tick parameters, spines
+- `.bpsg` files contain style + geometry: everything in `.bps` plus axis labels and limits
+- Create style files from interactive mode or edit JSON manually
 
 **Note**: 
 - Batch mode automatically exports SVG plots to `batplot_svg/` subdirectory

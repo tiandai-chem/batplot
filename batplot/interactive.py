@@ -81,6 +81,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 'cif_hkl_map': getattr(_bp, 'cif_hkl_map', None),
                 'cif_hkl_label_map': getattr(_bp, 'cif_hkl_label_map', None),
                 'show_cif_hkl': getattr(_bp, 'show_cif_hkl', False),
+                'show_cif_titles': getattr(_bp, 'show_cif_titles', True),
                 'cif_extend_suspended': getattr(_bp, 'cif_extend_suspended', False),
                 'keep_canvas_fixed': getattr(_bp, 'keep_canvas_fixed', False),
             }
@@ -101,8 +102,9 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
         col1 = ["c: colors", "f: font", "l: line", "t: toggle axes", "g: size"]
         if has_cif:
             col1.append("z: hkl")
+            col1.append("h: CIF titles")
         col2 = ["a: rearrange", "d: offset", "r: rename", "x: change X", "y: change Y"]
-        col3 = ["v: find peaks", "n: crosshair", "p: print(export) style", "i: import style", "e: export figure", "s: save project", "b: undo", "q: quit"]
+        col3 = ["v: find peaks", "n: crosshair", "p: print(export) style/geom", "i: import style/geom", "e: export figure", "s: save project", "b: undo", "q: quit"]
         if args.stack:
             col2 = [item for item in col2 if not item.startswith("d:") and not item.startswith("y:")]
         if not is_diffraction:
@@ -663,8 +665,11 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     "y_major": _tick_width(ax.yaxis, 'major'),
                     "y_minor": _tick_width(ax.yaxis, 'minor')
                 },
+                "tick_lengths": dict(getattr(fig, '_tick_lengths', {'major': None, 'minor': None})),
+                "tick_direction": getattr(fig, '_tick_direction', 'out'),
                 "cif_tick_series": (list(getattr(_bp, 'cif_tick_series')) if (_bp is not None and hasattr(_bp, 'cif_tick_series')) else None),
-                "show_cif_hkl": (bool(getattr(_bp, 'show_cif_hkl')) if _bp is not None and hasattr(_bp, 'show_cif_hkl') else False)
+                "show_cif_hkl": (bool(getattr(_bp, 'show_cif_hkl')) if _bp is not None and hasattr(_bp, 'show_cif_hkl') else False),
+                "show_cif_titles": (bool(getattr(_bp, 'show_cif_titles')) if _bp is not None and hasattr(_bp, 'show_cif_titles') else True)
             }
             # Line + data arrays
             for i, ln in enumerate(ax.lines):
@@ -819,6 +824,26 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception:
                 pass
 
+            # Tick lengths
+            tl = snap.get("tick_lengths", {})
+            try:
+                if tl.get("major") is not None:
+                    ax.tick_params(axis='both', which='major', length=tl["major"])
+                if tl.get("minor") is not None:
+                    ax.tick_params(axis='both', which='minor', length=tl["minor"])
+                if tl:
+                    fig._tick_lengths = dict(tl)
+            except Exception:
+                pass
+
+            # Tick direction
+            try:
+                tick_dir = snap.get("tick_direction", 'out')
+                ax.tick_params(axis='both', which='both', direction=tick_dir)
+                fig._tick_direction = tick_dir
+            except Exception:
+                pass
+
             # Labels list
             labels[:] = snap["labels"]
 
@@ -861,6 +886,11 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             if _bp is not None and 'show_cif_hkl' in snap:
                 try:
                     setattr(_bp, 'show_cif_hkl', bool(snap['show_cif_hkl']))
+                except Exception:
+                    pass
+            if _bp is not None and 'show_cif_titles' in snap:
+                try:
+                    setattr(_bp, 'show_cif_titles', bool(snap['show_cif_titles']))
                 except Exception:
                     pass
             # Redraw CIF ticks after restoration if available
@@ -932,6 +962,24 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print(f"CIF hkl labels {'ON' if bool(getattr(_bp,'show_cif_hkl', False)) else 'OFF'} (visible labels: {n_labels}).")
             except Exception as e:
                 print(f"Error toggling hkl labels: {e}")
+            continue
+        elif key == 'h':  # toggle CIF title labels (filename labels)
+            try:
+                # Flip visibility flag for CIF titles
+                cur = bool(getattr(_bp, 'show_cif_titles', True)) if _bp is not None else True
+                if _bp is not None:
+                    setattr(_bp, 'show_cif_titles', not cur)
+                # Avoid re-entrant extension while redrawing
+                prev_ext = bool(getattr(_bp, 'cif_extend_suspended', False)) if _bp is not None else False
+                if _bp is not None:
+                    setattr(_bp, 'cif_extend_suspended', True)
+                if hasattr(ax, '_cif_draw_func'):
+                    ax._cif_draw_func()
+                if _bp is not None:
+                    setattr(_bp, 'cif_extend_suspended', prev_ext)
+                print(f"CIF title labels {'ON' if bool(getattr(_bp,'show_cif_titles', True)) else 'OFF'}.")
+            except Exception as e:
+                print(f"Error toggling CIF titles: {e}")
             continue
         elif key == 'b':  # <-- UNDO
             restore_state()
@@ -1006,6 +1054,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     cif_hkl_map=(getattr(_bp, 'cif_hkl_map', None) if _bp is not None else None),
                     cif_hkl_label_map=(getattr(_bp, 'cif_hkl_label_map', None) if _bp is not None else None),
                     show_cif_hkl=(bool(getattr(_bp,'show_cif_hkl', False)) if _bp is not None else False),
+                    show_cif_titles=(bool(getattr(_bp,'show_cif_titles', True)) if _bp is not None else True),
                 )
                 print(f"Saved session to {target_path}")
             except Exception as e:
@@ -1207,7 +1256,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         if not (0 <= idx < len(labels)):
                             print("Invalid index.")
                             continue
-                        new_label = input("New curve label (q=cancel): ").strip()
+                        new_label = input("New curve label (q=cancel): ")
                         if not new_label or new_label.lower() == 'q':
                             print("Canceled.")
                             continue
@@ -1231,7 +1280,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 print("Index out of range."); continue
                         except ValueError:
                             print("Bad index."); continue
-                        new_name = input("New CIF tick label (q=cancel): ").strip()
+                        new_name = input("New CIF tick label (q=cancel): ")
                         if not new_name or new_name.lower()=='q':
                             print("Canceled."); continue
                         lab,fname,peaksQ,wl,qmax_sim,color = cts[idx]
@@ -1256,7 +1305,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                             setattr(_bp, 'cif_extend_suspended', False)
                     elif mode in ('x','y'):
                         print("Enter new axis label (q=cancel). Prefer mathtext for superscripts:")
-                        new_axis = input("New axis label: ").strip()
+                        new_axis = input("New axis label: ")
                         if not new_axis or new_axis.lower() == 'q':
                             print("Canceled.")
                             continue
@@ -1704,12 +1753,57 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     print("  wasd choose side: w=top, a=left, s=bottom, d=right")
                     print("  1..5 choose what: 1=spine line, 2=major ticks, 3=minor ticks, 4=labels, 5=axis title")
                     print("  Combine letter+number to toggle, e.g. 's2 w5 a4' (case-insensitive)")
-                    print("  list = show state, q = return")
+                    print("  i = invert tick direction, l = change tick length, list = show state, q = return")
                     cmd = input("Enter code(s): ").strip().lower()
                     if not cmd:
                         continue
                     if cmd == 'q':
                         break
+                    if cmd == 'i':
+                        # Invert tick direction (toggle between 'out' and 'in')
+                        push_state("tick-direction")
+                        current_dir = getattr(fig, '_tick_direction', 'out')
+                        new_dir = 'in' if current_dir == 'out' else 'out'
+                        setattr(fig, '_tick_direction', new_dir)
+                        ax.tick_params(axis='both', which='both', direction=new_dir)
+                        print(f"Tick direction: {new_dir}")
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                        continue
+                    if cmd == 'l':
+                        # Change tick length (major and minor automatically set to 70%)
+                        try:
+                            # Get current major tick length from axes
+                            current_major = ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ax.xaxis.get_major_ticks() else 4.0
+                            print(f"Current major tick length: {current_major}")
+                            new_length_str = input("Enter new major tick length (e.g., 6.0): ").strip()
+                            if not new_length_str:
+                                continue
+                            new_major = float(new_length_str)
+                            if new_major <= 0:
+                                print("Length must be positive.")
+                                continue
+                            new_minor = new_major * 0.7  # Auto-set minor to 70%
+                            push_state("tick-length")
+                            # Apply to all four axes
+                            ax.tick_params(axis='both', which='major', length=new_major)
+                            ax.tick_params(axis='both', which='minor', length=new_minor)
+                            # Store for persistence
+                            if not hasattr(fig, '_tick_lengths'):
+                                fig._tick_lengths = {}
+                            fig._tick_lengths.update({'major': new_major, 'minor': new_minor})
+                            print(f"Set major tick length: {new_major}, minor: {new_minor:.2f}")
+                            try:
+                                fig.canvas.draw()
+                            except Exception:
+                                fig.canvas.draw_idle()
+                        except ValueError:
+                            print("Invalid number.")
+                        except Exception as e:
+                            print(f"Error setting tick length: {e}")
+                        continue
                     parts = cmd.split()
                     if parts == ['list']:
                         print_tick_state()
@@ -1980,36 +2074,36 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
         elif key == 'i':
             try:
                 try:
-                    _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    _style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                 except Exception:
-                    _bpcfg_files = []
-                if _bpcfg_files:
-                    print("Available .bpcfg files:")
-                    for _i, _f in enumerate(_bpcfg_files, 1):
+                    _style_files = []
+                if _style_files:
+                    print("Available style files:")
+                    for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number to open or filename (.bpcfg; q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg; q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     print("Canceled.")
                     continue
-                if inp.isdigit() and _bpcfg_files:
+                if inp.isdigit() and _style_files:
                     _idx = int(inp)
-                    if 1 <= _idx <= len(_bpcfg_files):
-                        fname = os.path.join(os.getcwd(), _bpcfg_files[_idx-1])
+                    if 1 <= _idx <= len(_style_files):
+                        fname = os.path.join(os.getcwd(), _style_files[_idx-1])
                     else:
                         print("Invalid number.")
                         continue
                 else:
                     fname = inp
                     if not os.path.isfile(fname):
-                        root, ext = os.path.splitext(fname)
-                        if ext == "":
-                            alt = fname + ".bpcfg"
+                        # Try adding extensions
+                        found = False
+                        for ext in ['.bps', '.bpsg', '.bpcfg']:
+                            alt = fname if fname.lower().endswith(ext) else fname + ext
                             if os.path.isfile(alt):
                                 fname = alt
-                            else:
-                                print("File not found.")
-                                continue
-                        else:
+                                found = True
+                                break
+                        if not found:
                             print("File not found.")
                             continue
                 push_state("style-import")

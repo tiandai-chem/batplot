@@ -35,6 +35,7 @@ def dump_session(
     cif_hkl_map: Dict[str, List[Tuple[float, int, int, int]]] | None = None,
     cif_hkl_label_map: Dict[str, Dict[float, str]] | None = None,
     show_cif_hkl: bool | None = None,
+    show_cif_titles: bool | None = None,
 ) -> None:
     """Serialize the current interactive session to a pickle file.
 
@@ -96,6 +97,25 @@ def dump_session(
         'x_minor': _tick_width(ax.xaxis, 'minor'),
         'y_major': _tick_width(ax.yaxis, 'major'),
         'y_minor': _tick_width(ax.yaxis, 'minor'),
+    }
+    
+    # Helper to get tick length
+    def _tick_length(axis, which):
+        try:
+            ticks = axis.get_major_ticks() if which=='major' else axis.get_minor_ticks()
+            for t in ticks:
+                ln = t.tick1line
+                if ln.get_visible():
+                    return ln.get_markersize()
+        except Exception:
+            return None
+        return None
+    
+    tick_lengths = {
+        'x_major': _tick_length(ax.xaxis, 'major'),
+        'x_minor': _tick_length(ax.xaxis, 'minor'),
+        'y_major': _tick_length(ax.yaxis, 'major'),
+        'y_minor': _tick_length(ax.yaxis, 'minor'),
     }
 
     sp = fig.subplotpars
@@ -169,6 +189,7 @@ def dump_session(
             'wasd_state': wasd_state,
             'tick_state': dict(tick_state),
             'tick_widths': tick_widths,
+            'tick_lengths': tick_lengths,
             'font': {
                 'size': plt.rcParams.get('font.size'),
                 'chain': list(plt.rcParams.get('font.sans-serif', [])),
@@ -182,6 +203,7 @@ def dump_session(
             'cif_hkl_map': {k: [tuple(v) for v in val] for k, val in (cif_hkl_map or {}).items()},
             'cif_hkl_label_map': {k: dict(v) for k, v in (cif_hkl_label_map or {}).items()},
             'show_cif_hkl': bool(show_cif_hkl),
+            'show_cif_titles': bool(show_cif_titles) if show_cif_titles is not None else True,
         }
         sess['axis_titles'] = {
             'top_x': bool(getattr(ax, '_top_xlabel_on', False)),
@@ -924,6 +946,8 @@ def dump_ec_session(
             'y_major': _tick_width(ax.yaxis, 'major'),
             'y_minor': _tick_width(ax.yaxis, 'minor'),
         }
+        # Tick direction
+        tick_direction = getattr(fig, '_tick_direction', 'out')
         # Spines state
         spines_state = {
             name: {
@@ -1009,6 +1033,7 @@ def dump_ec_session(
             'wasd_state': wasd_state,
             'tick_state': tick_state,
             'tick_widths': tick_widths,
+            'tick_direction': tick_direction,
             'spines': spines_state,
             'titles': titles,
             'mode': getattr(ax, '_is_dqdv_mode', None),  # Store dQdV mode flag
@@ -1236,6 +1261,15 @@ def load_ec_session(filename: str):
                 if tw.get('y_minor') is not None: ax.tick_params(axis='y', which='minor', width=tw['y_minor'])
             except Exception:
                 pass
+        
+        # Apply tick direction from version 2
+        try:
+            tick_direction = sess.get('tick_direction', 'out')
+            if tick_direction:
+                setattr(fig, '_tick_direction', tick_direction)
+                ax.tick_params(axis='both', which='both', direction=tick_direction)
+        except Exception:
+            pass
     else:
         # Version 1 backward compatibility
         try:
@@ -1746,6 +1780,16 @@ def load_cpc_session(filename: str):
                 ax2.tick_params(axis='y', which='major', width=tick_widths['ry_major'])
             if tick_widths.get('ry_minor') is not None:
                 ax2.tick_params(axis='y', which='minor', width=tick_widths['ry_minor'])
+        except Exception:
+            pass
+        
+        # Restore tick direction (version 2+)
+        try:
+            tick_direction = sess.get('tick_direction', 'out')
+            if tick_direction:
+                setattr(fig, '_tick_direction', tick_direction)
+                ax.tick_params(axis='both', which='both', direction=tick_direction)
+                ax2.tick_params(axis='both', which='both', direction=tick_direction)
         except Exception:
             pass
         

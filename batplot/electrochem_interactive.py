@@ -47,8 +47,8 @@ def _print_menu(n_cycles: int, is_dqdv: bool = False):
         col2.insert(1, "a: capacity/ion")
     
     col3 = [
-        "p: print(export) style",
-        "i: import style",
+        "p: print(export) style/geom",
+        "i: import style/geom",
         "e: export figure",
         "s: save project",
         "b: undo",
@@ -657,6 +657,8 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     'y_major': _tick_width(ax.yaxis, 'major'),
                     'y_minor': _tick_width(ax.yaxis, 'minor')
                 },
+                'tick_lengths': dict(getattr(fig, '_tick_lengths', {'major': None, 'minor': None})),
+                'tick_direction': getattr(fig, '_tick_direction', 'out'),
                 'titles': {
                     'top_x': bool(getattr(ax, '_top_xlabel_on', False)),
                     'right_y': bool(getattr(ax, '_right_ylabel_on', False))
@@ -738,6 +740,25 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     ax.tick_params(axis='y', which='major', width=tw['y_major'])
                 if tw.get('y_minor') is not None:
                     ax.tick_params(axis='y', which='minor', width=tw['y_minor'])
+            except Exception:
+                pass
+            # Tick lengths
+            tl = snap.get('tick_lengths', {})
+            try:
+                if tl.get('major') is not None:
+                    ax.tick_params(axis='both', which='major', length=tl['major'])
+                if tl.get('minor') is not None:
+                    ax.tick_params(axis='both', which='minor', length=tl['minor'])
+                if tl:
+                    fig._tick_lengths = dict(tl)
+            except Exception:
+                pass
+            # Tick direction
+            try:
+                tick_dir = snap.get('tick_direction', 'out')
+                if tick_dir:
+                    setattr(fig, '_tick_direction', tick_dir)
+                    ax.tick_params(axis='both', which='both', direction=tick_dir)
             except Exception:
                 pass
             # Title duplicates
@@ -963,60 +984,86 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'p':
-            # Print current style and optionally export to .bpcfg
+            # Print/export style or style+geometry
             try:
-                # Use a centralized style snapshot function for consistency
-                cfg = _get_style_snapshot(fig, ax, cycle_lines, tick_state)
-
-                # Print style info in a format similar to the main interactive menu
-                _print_style_snapshot(cfg)
-
-                # Offer to export the collected style
-                _export_style_dialog(cfg)
-
+                print("Print & Export: ps=style only (.bps), psg=style+geometry (.bpsg), q=cancel")
+                choice = input("p> ").strip().lower()
+                if not choice or choice == 'q':
+                    _print_menu(len(all_cycles), is_dqdv)
+                    continue
+                
+                if choice == 'ps':
+                    # Style only
+                    cfg = _get_style_snapshot(fig, ax, cycle_lines, tick_state)
+                    cfg['kind'] = 'ec_style'
+                    _print_style_snapshot(cfg)
+                    _export_style_dialog(cfg, default_ext='.bps')
+                elif choice == 'psg':
+                    # Style + Geometry
+                    cfg = _get_style_snapshot(fig, ax, cycle_lines, tick_state)
+                    geom = _get_geometry_snapshot(fig, ax)
+                    cfg['kind'] = 'ec_style_geom'
+                    cfg['geometry'] = geom
+                    _print_style_snapshot(cfg)
+                    print("\n--- Geometry ---")
+                    print(f"X-axis label: {geom['xlabel']}")
+                    print(f"Y-axis label: {geom['ylabel']}")
+                    print(f"X limits: {geom['xlim'][0]:.4g} to {geom['xlim'][1]:.4g}")
+                    print(f"Y limits: {geom['ylim'][0]:.4g} to {geom['ylim'][1]:.4g}")
+                    _export_style_dialog(cfg, default_ext='.bpsg')
+                else:
+                    print(f"Unknown option: {choice}")
             except Exception as e:
-                print(f"Error in style menu: {e}")
+                print(f"Error in print/export menu: {e}")
             _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'i':
-            # Import style from .bpcfg (with numbered list)
+            # Import style from .bps/.bpsg/.bpcfg (with numbered list)
             try:
                 try:
-                    _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    _style_files = sorted([f for f in os.listdir(os.getcwd()) 
+                                          if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                 except Exception:
-                    _bpcfg_files = []
-                if _bpcfg_files:
-                    print("Available .bpcfg files:")
-                    for _i, _f in enumerate(_bpcfg_files, 1):
+                    _style_files = []
+                if _style_files:
+                    print("Available style files:")
+                    for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number to open or filename (.bpcfg, q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg, q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(len(all_cycles), is_dqdv); continue
                 push_state("import-style")
-                if inp.isdigit() and _bpcfg_files:
+                if inp.isdigit() and _style_files:
                     _idx = int(inp)
-                    if 1 <= _idx <= len(_bpcfg_files):
-                        path = os.path.join(os.getcwd(), _bpcfg_files[_idx-1])
+                    if 1 <= _idx <= len(_style_files):
+                        path = os.path.join(os.getcwd(), _style_files[_idx-1])
                     else:
                         print("Invalid number."); _print_menu(len(all_cycles), is_dqdv); continue
                 else:
                     path = inp
                     if not os.path.isfile(path):
-                        root, ext = os.path.splitext(path)
-                        if ext == '':
-                            alt = path + '.bpcfg'
+                        # Try adding extensions
+                        found = False
+                        for ext in ['.bps', '.bpsg', '.bpcfg']:
+                            alt = path if path.lower().endswith(ext) else path + ext
                             if os.path.isfile(alt):
                                 path = alt
-                            else:
-                                print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
-                        else:
+                                found = True
+                                break
+                        if not found:
                             print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
+                
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
-                if not isinstance(cfg, dict) or cfg.get('kind') != 'ec_style':
+                
+                # Check file type
+                kind = cfg.get('kind', '')
+                if kind not in ('ec_style', 'ec_style_geom'):
                     print("Not an EC style file.")
                     _print_menu(len(all_cycles), is_dqdv)
                     continue
+                
+                has_geometry = (kind == 'ec_style_geom' and 'geometry' in cfg)
                 
                 # --- Apply comprehensive style (no curve data) ---
                 # Figure and font
@@ -1118,6 +1165,12 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     if tick_widths.get('x_minor') is not None: ax.tick_params(axis='x', which='minor', width=tick_widths['x_minor'])
                     if tick_widths.get('y_major') is not None: ax.tick_params(axis='y', which='major', width=tick_widths['y_major'])
                     if tick_widths.get('y_minor') is not None: ax.tick_params(axis='y', which='minor', width=tick_widths['y_minor'])
+                    
+                    # Apply tick direction
+                    tick_direction = cfg.get('ticks', {}).get('direction', 'out')
+                    if tick_direction:
+                        setattr(fig, '_tick_direction', tick_direction)
+                        ax.tick_params(axis='both', which='both', direction=tick_direction)
                 except Exception: pass
                 
                 # Curve linewidth (single value for all curves)
@@ -1156,6 +1209,23 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 
                 # Final redraw
                 _rebuild_legend(ax)
+                
+                # Apply geometry if present
+                if has_geometry:
+                    try:
+                        geom = cfg.get('geometry', {})
+                        if 'xlabel' in geom and geom['xlabel']:
+                            ax.set_xlabel(geom['xlabel'])
+                        if 'ylabel' in geom and geom['ylabel']:
+                            ax.set_ylabel(geom['ylabel'])
+                        if 'xlim' in geom and isinstance(geom['xlim'], list) and len(geom['xlim']) == 2:
+                            ax.set_xlim(geom['xlim'][0], geom['xlim'][1])
+                        if 'ylim' in geom and isinstance(geom['ylim'], list) and len(geom['ylim']) == 2:
+                            ax.set_ylim(geom['ylim'][0], geom['ylim'][1])
+                        print("Applied geometry (labels and limits)")
+                    except Exception as e:
+                        print(f"Warning: Could not apply geometry: {e}")
+                
                 fig.canvas.draw_idle()
                 print(f"Applied style from {path}")
 
@@ -1349,7 +1419,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     if sub == 'q':
                         break
                     if sub in ('x','both'):
-                        txt = input("New X-axis label (blank=cancel): ").strip()
+                        txt = input("New X-axis label (blank=cancel): ")
                         if txt:
                             push_state("rename-x")
                             base_xlabel = txt
@@ -1371,7 +1441,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             except Exception:
                                 pass
                     if sub in ('y','both'):
-                        txt = input("New Y-axis label (blank=cancel): ").strip()
+                        txt = input("New Y-axis label (blank=cancel): ")
                         if txt:
                             push_state("rename-y")
                             base_ylabel = txt
@@ -1474,12 +1544,57 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 while True:
                     print("WASD toggles: direction (w/a/s/d) x action (1..5)")
                     print("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title")
-                    print("Type 'list' for state, 'q' to return.")
+                    print("Type 'i' to invert tick direction, 'l' to change tick length, 'list' for state, 'q' to return.")
                     cmd = input("t> ").strip().lower()
                     if not cmd:
                         continue
                     if cmd == 'q':
                         break
+                    if cmd == 'i':
+                        # Invert tick direction (toggle between 'out' and 'in')
+                        push_state("tick-direction")
+                        current_dir = getattr(fig, '_tick_direction', 'out')
+                        new_dir = 'in' if current_dir == 'out' else 'out'
+                        setattr(fig, '_tick_direction', new_dir)
+                        ax.tick_params(axis='both', which='both', direction=new_dir)
+                        print(f"Tick direction: {new_dir}")
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                        continue
+                    if cmd == 'l':
+                        # Change tick length (major and minor automatically set to 70%)
+                        try:
+                            # Get current major tick length from axes
+                            current_major = ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ax.xaxis.get_major_ticks() else 4.0
+                            print(f"Current major tick length: {current_major}")
+                            new_length_str = input("Enter new major tick length (e.g., 6.0): ").strip()
+                            if not new_length_str:
+                                continue
+                            new_major = float(new_length_str)
+                            if new_major <= 0:
+                                print("Length must be positive.")
+                                continue
+                            new_minor = new_major * 0.7  # Auto-set minor to 70%
+                            push_state("tick-length")
+                            # Apply to all four axes
+                            ax.tick_params(axis='both', which='major', length=new_major)
+                            ax.tick_params(axis='both', which='minor', length=new_minor)
+                            # Store for persistence
+                            if not hasattr(fig, '_tick_lengths'):
+                                fig._tick_lengths = {}
+                            fig._tick_lengths.update({'major': new_major, 'minor': new_minor})
+                            print(f"Set major tick length: {new_major}, minor: {new_minor:.2f}")
+                            try:
+                                fig.canvas.draw()
+                            except Exception:
+                                fig.canvas.draw_idle()
+                        except ValueError:
+                            print("Invalid number.")
+                        except Exception as e:
+                            print(f"Error setting tick length: {e}")
+                        continue
                     if cmd == 'list':
                         print("Spine/ticks state:")
                         def b(v): return 'ON' if bool(v) else 'off'
@@ -1837,6 +1952,16 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             _print_menu(len(all_cycles), is_dqdv)
 
 
+def _get_geometry_snapshot(fig, ax) -> Dict:
+    """Collects a snapshot of geometry settings (axes labels and limits)."""
+    return {
+        'xlim': list(ax.get_xlim()),
+        'ylim': list(ax.get_ylim()),
+        'xlabel': ax.get_xlabel() or '',
+        'ylabel': ax.get_ylabel() or '',
+    }
+
+
 def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
     """Collects a comprehensive snapshot of the current plot style (no curve data)."""
     # Figure and font properties
@@ -1876,6 +2001,9 @@ def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
         'y_major': _tick_width(ax.yaxis, 'major'),
         'y_minor': _tick_width(ax.yaxis, 'minor'),
     }
+
+    # Tick direction
+    tick_direction = getattr(fig, '_tick_direction', 'out')
 
     # Curve linewidth: get from stored value or first visible curve
     curve_linewidth = getattr(fig, '_ec_curve_linewidth', None)
@@ -1965,7 +2093,7 @@ def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
         },
         'font': {'family': font_fam0, 'size': font_size},
         'spines': spines,
-        'ticks': {'widths': tick_widths},
+        'ticks': {'widths': tick_widths, 'direction': tick_direction},
         'wasd_state': wasd_state,
         'curve_linewidth': curve_linewidth,
         'curve_markers': curve_marker_props,
@@ -2010,6 +2138,10 @@ def _print_style_snapshot(cfg: Dict):
     y_maj = tick_widths.get('y_major')
     y_min = tick_widths.get('y_minor')
     print(f"Tick widths (major/minor): X=({x_maj}, {x_min})  Y=({y_maj}, {y_min})")
+    
+    # Tick direction
+    tick_direction = cfg.get('ticks', {}).get('direction', 'out')
+    print(f"Tick direction: {tick_direction}")
 
     # Spines
     spines = cfg.get('spines', {})
@@ -2037,16 +2169,22 @@ def _print_style_snapshot(cfg: Dict):
     print("--- End diagnostics ---\n")
 
 
-def _export_style_dialog(cfg: Dict):
-    """Handles the dialog for exporting a style configuration to a file."""
+def _export_style_dialog(cfg: Dict, default_ext: str = '.bpcfg'):
+    """Handles the dialog for exporting a style configuration to a file.
+    
+    Args:
+        cfg: Configuration dictionary to export
+        default_ext: Default file extension ('.bps' for style-only, '.bpsg' for style+geometry)
+    """
     try:
-        bpcfg_files = sorted([f for f in os.listdir('.') if f.lower().endswith('.bpcfg')])
+        # List files with matching extension
+        bpcfg_files = sorted([f for f in os.listdir('.') if f.lower().endswith(default_ext) or f.lower().endswith('.bpcfg')])
         if bpcfg_files:
-            print("Existing .bpcfg files:")
+            print(f"Existing {default_ext} files:")
             for i, f in enumerate(bpcfg_files, 1):
                 print(f"  {i}: {f}")
         
-        choice = input("Export style to file? Enter filename or number to overwrite (q=cancel): ").strip()
+        choice = input(f"Export to file? Enter filename or number to overwrite (q=cancel): ").strip()
         if not choice or choice.lower() == 'q':
             return
 
@@ -2056,7 +2194,11 @@ def _export_style_dialog(cfg: Dict):
             if not _confirm_overwrite(target_path):
                 return
         else:
-            target_path = choice if choice.lower().endswith('.bpcfg') else f"{choice}.bpcfg"
+            # Add default extension if no extension provided
+            if not any(choice.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
+                target_path = f"{choice}{default_ext}"
+            else:
+                target_path = choice
             if not _confirm_overwrite(target_path):
                 return
         
