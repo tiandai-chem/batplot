@@ -81,6 +81,7 @@ batplot --operando --interactive
 | **Electrochemistry** | `.csv` (Neware), `.mpt` (Biologic) |
 | **XRD / PDF** | `.xye`, `.xy`, `.qye`, `.dat` |
 | **XAS** | `.nor`, `.chik`, `.chir` |
+| **Others** | `user defined` (plot first two columns as x and y) |
 
 ## Interactive Features
 
