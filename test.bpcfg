@@ -1,0 +1,82 @@
+{
+  "kind": "ec_style",
+  "version": 2,
+  "figure": {
+    "canvas_size": [
+      10.0,
+      6.0
+    ],
+    "frame_size": [
+      3.9999999999999996,
+      3.0
+    ]
+  },
+  "font": {
+    "family": "Arial",
+    "size": 10.0
+  },
+  "spines": {
+    "bottom": {
+      "linewidth": 0.8,
+      "visible": true
+    },
+    "top": {
+      "linewidth": 0.8,
+      "visible": true
+    },
+    "left": {
+      "linewidth": 0.8,
+      "visible": true
+    },
+    "right": {
+      "linewidth": 0.8,
+      "visible": true
+    }
+  },
+  "ticks": {
+    "widths": {
+      "x_major": 1.5,
+      "x_minor": null,
+      "y_major": 1.5,
+      "y_minor": null
+    }
+  },
+  "wasd_state": {
+    "top": {
+      "spine": true,
+      "ticks": false,
+      "minor": false,
+      "labels": true,
+      "title": true
+    },
+    "bottom": {
+      "spine": true,
+      "ticks": true,
+      "minor": false,
+      "labels": true,
+      "title": true
+    },
+    "left": {
+      "spine": true,
+      "ticks": true,
+      "minor": false,
+      "labels": true,
+      "title": true
+    },
+    "right": {
+      "spine": true,
+      "ticks": false,
+      "minor": false,
+      "labels": true,
+      "title": true
+    }
+  },
+  "curve_linewidth": 2.0,
+  "curve_markers": {
+    "linestyle": "-",
+    "marker": "None",
+    "markersize": 6.0,
+    "markerfacecolor": "#1f77b4",
+    "markeredgecolor": "#1f77b4"
+  }
+}

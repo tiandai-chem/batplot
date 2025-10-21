@@ -570,10 +570,10 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     except Exception:
                         pass
             
-            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
+            # Convert to points and add gap (match matplotlib's labelpad = 8pt)
             if max_w_px > 0:
                 tick_width_pts = max_w_px * 72.0 / dpi
-                dx_pts = tick_width_pts + 14.0  # 14pt gap to match left labelpad
+                dx_pts = tick_width_pts + 8.0  # 8pt gap to match left labelpad
             else:
                 dx_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
             
@@ -981,7 +981,6 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
         elif key == 'i':
             # Import style from .bpcfg (with numbered list)
             try:
-                push_state("import-style")
                 try:
                     _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
                 except Exception:
@@ -993,6 +992,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 inp = input("Enter number to open or filename (.bpcfg, q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(len(all_cycles), is_dqdv); continue
+                push_state("import-style")
                 if inp.isdigit() and _bpcfg_files:
                     _idx = int(inp)
                     if 1 <= _idx <= len(_bpcfg_files):
@@ -1031,17 +1031,79 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         _apply_font_family(ax, font_cfg['family'])
                     if font_cfg.get('size') is not None:
                         _apply_font_size(ax, float(font_cfg['size']))
-                except Exception: pass
+                except Exception as e:
+                    print(f"Warning: Could not apply figure/font settings: {e}")
 
                 # WASD state and dependent components
                 try:
                     wasd_state = cfg.get('wasd_state')
                     if wasd_state and isinstance(wasd_state, dict):
-                        # Store on fig and apply
-                        setattr(fig, '_ec_wasd_state', wasd_state)
-                        _sync_tick_state()
-                        _apply_wasd()
-                except Exception: pass
+                        # Apply spines
+                        for name in ('top','bottom','left','right'):
+                            side = wasd_state.get(name, {})
+                            if name in ax.spines and 'spine' in side:
+                                ax.spines[name].set_visible(bool(side['spine']))
+                        
+                        # Apply major ticks & labels
+                        top_s = wasd_state.get('top', {})
+                        bot_s = wasd_state.get('bottom', {})
+                        left_s = wasd_state.get('left', {})
+                        right_s = wasd_state.get('right', {})
+                        
+                        ax.tick_params(axis='x', 
+                                      top=bool(top_s.get('ticks', False)), 
+                                      bottom=bool(bot_s.get('ticks', True)),
+                                      labeltop=bool(top_s.get('labels', False)), 
+                                      labelbottom=bool(bot_s.get('labels', True)))
+                        ax.tick_params(axis='y', 
+                                      left=bool(left_s.get('ticks', True)), 
+                                      right=bool(right_s.get('ticks', False)),
+                                      labelleft=bool(left_s.get('labels', True)), 
+                                      labelright=bool(right_s.get('labels', False)))
+                        
+                        # Apply minor ticks
+                        if top_s.get('minor') or bot_s.get('minor'):
+                            ax.xaxis.set_minor_locator(AutoMinorLocator())
+                            ax.xaxis.set_minor_formatter(NullFormatter())
+                        ax.tick_params(axis='x', which='minor', 
+                                      top=bool(top_s.get('minor', False)), 
+                                      bottom=bool(bot_s.get('minor', False)), 
+                                      labeltop=False, labelbottom=False)
+                        
+                        if left_s.get('minor') or right_s.get('minor'):
+                            ax.yaxis.set_minor_locator(AutoMinorLocator())
+                            ax.yaxis.set_minor_formatter(NullFormatter())
+                        ax.tick_params(axis='y', which='minor', 
+                                      left=bool(left_s.get('minor', False)), 
+                                      right=bool(right_s.get('minor', False)), 
+                                      labelleft=False, labelright=False)
+                        
+                        # Apply axis titles
+                        ax._top_xlabel_on = bool(top_s.get('title', False))
+                        ax._right_ylabel_on = bool(right_s.get('title', False))
+                        
+                        # Update tick_state for consistency
+                        tick_state['t_ticks'] = bool(top_s.get('ticks', False))
+                        tick_state['t_labels'] = bool(top_s.get('labels', False))
+                        tick_state['b_ticks'] = bool(bot_s.get('ticks', True))
+                        tick_state['b_labels'] = bool(bot_s.get('labels', True))
+                        tick_state['l_ticks'] = bool(left_s.get('ticks', True))
+                        tick_state['l_labels'] = bool(left_s.get('labels', True))
+                        tick_state['r_ticks'] = bool(right_s.get('ticks', False))
+                        tick_state['r_labels'] = bool(right_s.get('labels', False))
+                        tick_state['mtx'] = bool(top_s.get('minor', False))
+                        tick_state['mbx'] = bool(bot_s.get('minor', False))
+                        tick_state['mly'] = bool(left_s.get('minor', False))
+                        tick_state['mry'] = bool(right_s.get('minor', False))
+                        
+                        # Reposition titles
+                        _ui_position_top_xlabel(ax, fig, tick_state)
+                        _ui_position_bottom_xlabel(ax, fig, tick_state)
+                        _ui_position_left_ylabel(ax, fig, tick_state)
+                        _ui_position_right_ylabel(ax, fig, tick_state)
+                        
+                except Exception as e:
+                    print(f"Warning: Could not apply tick visibility: {e}")
 
                 # Spines and Ticks (widths)
                 try:
@@ -1903,7 +1965,7 @@ def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
         },
         'font': {'family': font_fam0, 'size': font_size},
         'spines': spines,
-        'ticks': {'widths': tick_widths, 'state': dict(tick_state)},
+        'ticks': {'widths': tick_widths},
         'wasd_state': wasd_state,
         'curve_linewidth': curve_linewidth,
         'curve_markers': curve_marker_props,

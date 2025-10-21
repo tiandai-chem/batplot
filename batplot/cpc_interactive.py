@@ -259,7 +259,6 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=Non
             'position_inches': legend_xy_in  # [x, y] offset from canvas center in inches
         },
         'ticks': {
-            'visibility': tick_vis,
             'widths': {
                 'x_major': _tick_width(ax.xaxis, 'major'),
                 'x_minor': _tick_width(ax.xaxis, 'minor'),
@@ -1316,7 +1315,6 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             _print_menu(); continue
         elif key == 'i':
             try:
-                push_state("import-style")
                 try:
                     files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
                 except Exception:
@@ -1328,6 +1326,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 inp = input("Enter number to open or filename (.bpcfg; q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(); continue
+                push_state("import-style")
                 if inp.isdigit() and files:
                     idx = int(inp)
                     if 1 <= idx <= len(files):

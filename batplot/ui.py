@@ -250,7 +250,7 @@ def position_bottom_xlabel(ax, fig, tick_state: Dict[str, bool]):
                     pass
             return
         # Otherwise choose pad based on current tick label visibility
-        pad = 14 if bool(tick_state.get('b_labels', tick_state.get('bx', False))) else 6
+        pad = 8 if bool(tick_state.get('b_labels', tick_state.get('bx', False))) else 6
         try:
             ax.xaxis.labelpad = pad
         except Exception:
@@ -280,7 +280,7 @@ def position_left_ylabel(ax, fig, tick_state: Dict[str, bool]):
                 except Exception:
                     pass
             return
-        pad = 14 if bool(tick_state.get('l_labels', tick_state.get('ly', False))) else 6
+        pad = 8 if bool(tick_state.get('l_labels', tick_state.get('ly', False))) else 6
         try:
             ax.yaxis.labelpad = pad
         except Exception:

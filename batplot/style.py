@@ -166,6 +166,46 @@ def export_style_config(
         bbox = ax.get_position()
         frame_w_in = bbox.width * fw
         frame_h_in = bbox.height * fh
+        
+        # Build WASD state (20 parameters: 4 sides × 5 properties each)
+        def _get_spine_visible(which: str) -> bool:
+            sp = ax.spines.get(which)
+            try:
+                return bool(sp.get_visible()) if sp is not None else False
+            except Exception:
+                return False
+        
+        wasd_state = {
+            'top':    {
+                'spine': _get_spine_visible('top'),
+                'ticks': bool(tick_state.get('t_ticks', tick_state.get('tx', False))),
+                'minor': bool(tick_state.get('mtx', False)),
+                'labels': bool(tick_state.get('t_labels', tick_state.get('tx', False))),
+                'title': bool(getattr(ax, '_top_xlabel_on', False))
+            },
+            'bottom': {
+                'spine': _get_spine_visible('bottom'),
+                'ticks': bool(tick_state.get('b_ticks', tick_state.get('bx', True))),
+                'minor': bool(tick_state.get('mbx', False)),
+                'labels': bool(tick_state.get('b_labels', tick_state.get('bx', True))),
+                'title': bool(ax.get_xlabel())
+            },
+            'left':   {
+                'spine': _get_spine_visible('left'),
+                'ticks': bool(tick_state.get('l_ticks', tick_state.get('ly', True))),
+                'minor': bool(tick_state.get('mly', False)),
+                'labels': bool(tick_state.get('l_labels', tick_state.get('ly', True))),
+                'title': bool(ax.get_ylabel())
+            },
+            'right':  {
+                'spine': _get_spine_visible('right'),
+                'ticks': bool(tick_state.get('r_ticks', tick_state.get('ry', False))),
+                'minor': bool(tick_state.get('mry', False)),
+                'labels': bool(tick_state.get('r_labels', tick_state.get('ry', False))),
+                'title': bool(getattr(ax, '_right_ylabel_on', False))
+            },
+        }
+        
         cfg = {
             "figure": {
                 "size": [fw, fh],
@@ -184,12 +224,12 @@ def export_style_config(
                 "family_chain": plt.rcParams.get("font.sans-serif"),
             },
             "ticks": {
-                "visibility": tick_state.copy(),
                 "x_major_width": axis_tick_width(ax.xaxis, "major"),
                 "x_minor_width": axis_tick_width(ax.xaxis, "minor"),
                 "y_major_width": axis_tick_width(ax.yaxis, "major"),
                 "y_minor_width": axis_tick_width(ax.yaxis, "minor"),
             },
+            "wasd_state": wasd_state,
             "spines": {
                 name: {
                     "linewidth": spn.get_linewidth(),
@@ -403,17 +443,88 @@ def apply_style_config(
 
         # Tick visibility + widths
         ticks_cfg = cfg.get("ticks", {})
-        vis_cfg = ticks_cfg.get("visibility", {})
-        changed_visibility = False
-        for k, v in vis_cfg.items():
-            if k in tick_state and isinstance(v, bool):
-                tick_state[k] = v
-                changed_visibility = True
-        if changed_visibility:
+        
+        # Try wasd_state first (version 2), fall back to visibility dict (version 1)
+        wasd = cfg.get("wasd_state", {})
+        if wasd:
+            # Apply WASD state (20 parameters)
             try:
-                _ui_update_tick_visibility(ax, tick_state)
+                # Apply spines from wasd
+                for side in ('top', 'bottom', 'left', 'right'):
+                    side_cfg = wasd.get(side, {})
+                    if 'spine' in side_cfg and side in ax.spines:
+                        ax.spines[side].set_visible(bool(side_cfg['spine']))
+                
+                # Apply ticks and labels
+                top_cfg = wasd.get('top', {})
+                bot_cfg = wasd.get('bottom', {})
+                left_cfg = wasd.get('left', {})
+                right_cfg = wasd.get('right', {})
+                
+                ax.tick_params(axis='x',
+                              top=bool(top_cfg.get('ticks', False)),
+                              bottom=bool(bot_cfg.get('ticks', True)),
+                              labeltop=bool(top_cfg.get('labels', False)),
+                              labelbottom=bool(bot_cfg.get('labels', True)))
+                ax.tick_params(axis='y',
+                              left=bool(left_cfg.get('ticks', True)),
+                              right=bool(right_cfg.get('ticks', False)),
+                              labelleft=bool(left_cfg.get('labels', True)),
+                              labelright=bool(right_cfg.get('labels', False)))
+                
+                # Apply minor ticks
+                if top_cfg.get('minor') or bot_cfg.get('minor'):
+                    from matplotlib.ticker import AutoMinorLocator, NullFormatter
+                    ax.xaxis.set_minor_locator(AutoMinorLocator())
+                    ax.xaxis.set_minor_formatter(NullFormatter())
+                ax.tick_params(axis='x', which='minor',
+                              top=bool(top_cfg.get('minor', False)),
+                              bottom=bool(bot_cfg.get('minor', False)),
+                              labeltop=False, labelbottom=False)
+                
+                if left_cfg.get('minor') or right_cfg.get('minor'):
+                    from matplotlib.ticker import AutoMinorLocator, NullFormatter
+                    ax.yaxis.set_minor_locator(AutoMinorLocator())
+                    ax.yaxis.set_minor_formatter(NullFormatter())
+                ax.tick_params(axis='y', which='minor',
+                              left=bool(left_cfg.get('minor', False)),
+                              right=bool(right_cfg.get('minor', False)),
+                              labelleft=False, labelright=False)
+                
+                # Apply titles
+                ax._top_xlabel_on = bool(top_cfg.get('title', False))
+                ax._right_ylabel_on = bool(right_cfg.get('title', False))
+                
+                # Update tick_state for consistency
+                tick_state['t_ticks'] = bool(top_cfg.get('ticks', False))
+                tick_state['t_labels'] = bool(top_cfg.get('labels', False))
+                tick_state['b_ticks'] = bool(bot_cfg.get('ticks', True))
+                tick_state['b_labels'] = bool(bot_cfg.get('labels', True))
+                tick_state['l_ticks'] = bool(left_cfg.get('ticks', True))
+                tick_state['l_labels'] = bool(left_cfg.get('labels', True))
+                tick_state['r_ticks'] = bool(right_cfg.get('ticks', False))
+                tick_state['r_labels'] = bool(right_cfg.get('labels', False))
+                tick_state['mtx'] = bool(top_cfg.get('minor', False))
+                tick_state['mbx'] = bool(bot_cfg.get('minor', False))
+                tick_state['mly'] = bool(left_cfg.get('minor', False))
+                tick_state['mry'] = bool(right_cfg.get('minor', False))
+                
             except Exception as e:
-                print(f"[DEBUG] Exception updating tick visibility: {e}")
+                print(f"Warning: Could not apply WASD tick visibility: {e}")
+        else:
+            # Fall back to old visibility dict
+            vis_cfg = ticks_cfg.get("visibility", {})
+            changed_visibility = False
+            for k, v in vis_cfg.items():
+                if k in tick_state and isinstance(v, bool):
+                    tick_state[k] = v
+                    changed_visibility = True
+            if changed_visibility:
+                try:
+                    _ui_update_tick_visibility(ax, tick_state)
+                except Exception as e:
+                    print(f"[DEBUG] Exception updating tick visibility: {e}")
+
 
         xmaj = ticks_cfg.get("x_major_width")
         xminr = ticks_cfg.get("x_minor_width")

@@ -534,6 +534,15 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
     # Crosshair state for both axes
     # Undo history
     state_history = []
+    
+    def _get_spine_visible(axis, which: str) -> bool:
+        """Helper to get spine visibility status"""
+        sp = axis.spines.get(which)
+        try:
+            return bool(sp.get_visible()) if sp is not None else False
+        except Exception:
+            return False
+    
     def _snapshot(note: str = ""):
         try:
             fig_w, fig_h = _get_fig_size(fig)
@@ -561,37 +570,37 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             # WASD state for both panes
             op_wasd = {
                 'top':    {'spine': _get_spine_visible(ax, 'top'), 'ticks': ax.xaxis._major_tick_kw.get('tick1On', True), 
-                           'minor': bool(ax.xaxis._minortickkw.get('tick1On', False)), 
+                           'minor': bool(ax.xaxis._minor_tick_kw.get('tick1On', False)), 
                            'labels': ax.xaxis._major_tick_kw.get('label1On', True), 
                            'title': bool(getattr(ax, '_top_xlabel_on', False))},
                 'bottom': {'spine': _get_spine_visible(ax, 'bottom'), 'ticks': ax.xaxis._major_tick_kw.get('tick2On', True), 
-                           'minor': bool(ax.xaxis._minortickkw.get('tick2On', False)), 
+                           'minor': bool(ax.xaxis._minor_tick_kw.get('tick2On', False)), 
                            'labels': ax.xaxis._major_tick_kw.get('label2On', True), 
                            'title': bool(ax.get_xlabel())},
                 'left':   {'spine': _get_spine_visible(ax, 'left'), 'ticks': ax.yaxis._major_tick_kw.get('tick1On', True), 
-                           'minor': bool(ax.yaxis._minortickkw.get('tick1On', False)), 
+                           'minor': bool(ax.yaxis._minor_tick_kw.get('tick1On', False)), 
                            'labels': ax.yaxis._major_tick_kw.get('label1On', True), 
                            'title': bool(ax.get_ylabel())},
                 'right':  {'spine': _get_spine_visible(ax, 'right'), 'ticks': ax.yaxis._major_tick_kw.get('tick2On', False), 
-                           'minor': bool(ax.yaxis._minortickkw.get('tick2On', False)), 
+                           'minor': bool(ax.yaxis._minor_tick_kw.get('tick2On', False)), 
                            'labels': ax.yaxis._major_tick_kw.get('label2On', False), 
                            'title': bool(getattr(ax, '_right_ylabel_on', False))},
             }
             ec_wasd = {
                 'top':    {'spine': _get_spine_visible(ec_ax, 'top'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick1On', True), 
-                           'minor': bool(ec_ax.xaxis._minortickkw.get('tick1On', False)), 
+                           'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick1On', False)), 
                            'labels': ec_ax.xaxis._major_tick_kw.get('label1On', True), 
                            'title': bool(getattr(ec_ax, '_top_xlabel_on', False))},
                 'bottom': {'spine': _get_spine_visible(ec_ax, 'bottom'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick2On', True), 
-                           'minor': bool(ec_ax.xaxis._minortickkw.get('tick2On', False)), 
+                           'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick2On', False)), 
                            'labels': ec_ax.xaxis._major_tick_kw.get('label2On', True), 
                            'title': bool(ec_ax.get_xlabel())},
                 'left':   {'spine': _get_spine_visible(ec_ax, 'left'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick1On', False), 
-                           'minor': bool(ec_ax.yaxis._minortickkw.get('tick1On', False)), 
+                           'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick1On', False)), 
                            'labels': ec_ax.yaxis._major_tick_kw.get('label1On', False), 
                            'title': bool(ec_ax.get_ylabel())},
                 'right':  {'spine': _get_spine_visible(ec_ax, 'right'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick2On', True), 
-                           'minor': bool(ec_ax.yaxis._minortickkw.get('tick2On', False)), 
+                           'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick2On', False)), 
                            'labels': ec_ax.yaxis._major_tick_kw.get('label2On', True), 
                            'title': bool(ec_ax.get_ylabel())},
             }
@@ -615,8 +624,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             })
             if len(state_history) > 40:
                 state_history.pop(0)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Warning: snapshot failed: {e}")
     def _restore():
         if not state_history:
             print("No undo history."); return
@@ -1284,7 +1293,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         axis.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1, 2, 5], min_n_ticks=4))
                 except Exception:
                     pass
-            _snapshot("toggle-ticks")
             while True:
                 print("Choose pane: o=operando, e=ec, q=back")
                 pane = input("ot> ").strip().lower()
@@ -1544,6 +1552,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         if side == 'right' and key == 'minor':
                             ts['mry'] = bool(wasd['right']['minor'])
                     if changed:
+                        _snapshot("toggle-ticks")
                         _apply_wasd_axis(target, wasd)
                         try:
                             target._saved_tick_state = dict(ts)
@@ -1912,7 +1921,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             # Load a .bpcfg style and apply
             # Applies style properties from commands: oc, ow, ew, h, el, t, l, f, g, r
             try:
-                _snapshot("import-style")
                 try:
                     _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
                 except Exception:
@@ -1924,6 +1932,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 inp = input("Enter number to open or filename (.bpcfg): ").strip()
                 if not inp:
                     print_menu(); continue
+                _snapshot("import-style")
                 if inp.isdigit() and _bpcfg_files:
                     _idx = int(inp)
                     if 1 <= _idx <= len(_bpcfg_files):
@@ -2737,6 +2746,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print("Canvas: only figure size will change; panel widths/gaps are not altered.")
             line = input("New canvas size 'W H' (blank=cancel): ").strip()
             if line:
+                _snapshot("canvas-size")
                 try:
                     parts = line.split()
                     if len(parts) == 2:
