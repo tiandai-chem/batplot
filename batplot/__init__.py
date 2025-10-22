@@ -1,6 +1,5 @@
-"""batplot package."""
+"""batplot: Interactive plotting for battery data visualization."""
 
-# Skip version check to avoid OneDrive timeout issues
-__version__ = "1.3.0"
+__version__ = "1.3.1"
 
 __all__ = ["__version__"]

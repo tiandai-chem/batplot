@@ -1944,7 +1944,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 except Exception:
                     _bpcfg_files = []
                 if _bpcfg_files:
-                    print("Existing style files (.bps/.bpsg/.bpcfg):")
+                    print("Existing style files (.bps/.bpsg):")
                     for _i, _f in enumerate(_bpcfg_files, 1):
                         print(f"  {_i}: {_f}")
                 sub = input("Style: (e=export, q=return): ").strip().lower()
@@ -2145,7 +2145,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print("Available style files:")
                     for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg, q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg, q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     print_menu(); continue
                 _snapshot("import-style")

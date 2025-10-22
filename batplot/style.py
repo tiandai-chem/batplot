@@ -287,6 +287,9 @@ def export_style_config(
                 'ylabel': ax.get_ylabel() or '',
                 'xlim': list(ax.get_xlim()),
                 'ylim': list(ax.get_ylim()),
+                # Store the x/y ranges that the current data was normalized to
+                'norm_xlim': list(getattr(ax, '_norm_xlim', ax.get_xlim())),
+                'norm_ylim': list(getattr(ax, '_norm_ylim', ax.get_ylim())),
             }
             default_ext = '.bpsg'
         else:
@@ -672,6 +675,14 @@ def apply_style_config(
                     ax.set_xlabel(geom['xlabel'])
                 if 'ylabel' in geom and geom['ylabel']:
                     ax.set_ylabel(geom['ylabel'])
+                
+                # Restore normalization ranges (if saved)
+                if 'norm_xlim' in geom and isinstance(geom['norm_xlim'], list) and len(geom['norm_xlim']) == 2:
+                    ax._norm_xlim = tuple(geom['norm_xlim'])
+                if 'norm_ylim' in geom and isinstance(geom['norm_ylim'], list) and len(geom['norm_ylim']) == 2:
+                    ax._norm_ylim = tuple(geom['norm_ylim'])
+                
+                # Restore display limits
                 if 'xlim' in geom and isinstance(geom['xlim'], list) and len(geom['xlim']) == 2:
                     ax.set_xlim(geom['xlim'][0], geom['xlim'][1])
                 if 'ylim' in geom and isinstance(geom['ylim'], list) and len(geom['ylim']) == 2:

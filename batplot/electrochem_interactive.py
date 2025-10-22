@@ -1029,7 +1029,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     print("Available style files:")
                     for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg, q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg, q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(len(all_cycles), is_dqdv); continue
                 push_state("import-style")

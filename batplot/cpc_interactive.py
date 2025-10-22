@@ -1398,7 +1398,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     print("Available style files:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
-                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg; q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg; q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     _print_menu(); continue
                 push_state("import-style")

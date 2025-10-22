@@ -1297,10 +1297,19 @@ def batplot_main() -> int:
         delta = sess.get('delta', 0.0)
         ax.set_xlabel(sess.get('axis', {}).get('xlabel', 'X'))
         ax.set_ylabel(sess.get('axis', {}).get('ylabel', 'Intensity'))
-        if 'xlim' in sess.get('axis', {}):
-            ax.set_xlim(*sess['axis']['xlim'])
-        if 'ylim' in sess.get('axis', {}):
-            ax.set_ylim(*sess['axis']['ylim'])
+        
+        # Restore normalization ranges (if saved)
+        axis_cfg = sess.get('axis', {})
+        if 'norm_xlim' in axis_cfg and axis_cfg['norm_xlim'] is not None:
+            ax._norm_xlim = tuple(axis_cfg['norm_xlim'])
+        if 'norm_ylim' in axis_cfg and axis_cfg['norm_ylim'] is not None:
+            ax._norm_ylim = tuple(axis_cfg['norm_ylim'])
+        
+        # Restore display limits
+        if 'xlim' in axis_cfg:
+            ax.set_xlim(*axis_cfg['xlim'])
+        if 'ylim' in axis_cfg:
+            ax.set_ylim(*axis_cfg['ylim'])
         # Apply figure size & dpi if stored
         fig_cfg = sess.get('figure', {})
         try:
@@ -1880,6 +1889,10 @@ def batplot_main() -> int:
     ax.relim()
     ax.autoscale_view()
     fig.canvas.draw()
+
+    # Store the x/y limits that were used for data normalization (.bpsg save/restore)
+    ax._norm_xlim = tuple(ax.get_xlim())
+    ax._norm_ylim = tuple(ax.get_ylim())
 
     # Define a sample_tick safely (may be None if no labels yet)
     sample_tick = None

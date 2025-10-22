@@ -197,10 +197,10 @@ def position_right_ylabel(ax, fig, tick_state: Dict[str, bool]):
                 except Exception:
                     pass
 
-            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
+            # Convert to points and add gap (6pt gap to visually match left labelpad=8pt)
             if max_w_px > 0:
                 tick_width_pts = max_w_px * 72.0 / dpi
-                dx_pts = tick_width_pts + 14.0  # 14pt gap to match left labelpad
+                dx_pts = tick_width_pts + 6.0  # 6pt gap to visually match left labelpad
             else:
                 dx_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
             

@@ -36,10 +36,12 @@ def dump_session(
     cif_hkl_label_map: Dict[str, Dict[float, str]] | None = None,
     show_cif_hkl: bool | None = None,
     show_cif_titles: bool | None = None,
+    skip_confirm: bool = False,
 ) -> None:
     """Serialize the current interactive session to a pickle file.
 
     Parameters mirror the state captured in the original inline helper.
+    skip_confirm: If True, skip overwrite confirmation (already confirmed by caller).
     """
 
     # Infer axis mode string
@@ -172,6 +174,8 @@ def dump_session(
                 'ylabel': ax.get_ylabel(),
                 'xlim': ax.get_xlim(),
                 'ylim': ax.get_ylim(),
+                'norm_xlim': getattr(ax, '_norm_xlim', None),  # x-range used for normalization
+                'norm_ylim': getattr(ax, '_norm_ylim', None),  # y-range used for normalization
             },
             'figure': {
                 'size': tuple(map(float, fig.get_size_inches())),
@@ -211,10 +215,13 @@ def dump_session(
             'has_bottom_x': bool(ax.get_xlabel()),
             'has_left_y': bool(ax.get_ylabel()),
         }
-        target = _confirm_overwrite(filename)
-        if not target:
-            print("Session save canceled.")
-            return
+        if skip_confirm:
+            target = filename
+        else:
+            target = _confirm_overwrite(filename)
+            if not target:
+                print("Session save canceled.")
+                return
         with open(target, 'wb') as f:
             pickle.dump(sess, f)
         print(f"Session saved to {target}")

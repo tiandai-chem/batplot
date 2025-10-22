@@ -1022,6 +1022,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                             print("Canceled.")
                             continue
                         target_path = os.path.join(folder, name)
+                        skip_confirm = True  # Already confirmed above
                     else:
                         print("Invalid number.")
                         continue
@@ -1032,11 +1033,13 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     if ext == '':
                         name = name + '.pkl'
                     target_path = name if os.path.isabs(name) else os.path.join(folder, name)
+                    skip_confirm = False  # Let dump_session ask
                     if os.path.exists(target_path):
                         yn = input(f"'{os.path.basename(target_path)}' exists. Overwrite? (y/n): ").strip().lower()
                         if yn != 'y':
                             print("Canceled.")
                             continue
+                        skip_confirm = True  # Already confirmed
                 # Delegate to session dumper
                 _bp_dump_session(
                     target_path,
@@ -1055,6 +1058,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     cif_hkl_label_map=(getattr(_bp, 'cif_hkl_label_map', None) if _bp is not None else None),
                     show_cif_hkl=(bool(getattr(_bp,'show_cif_hkl', False)) if _bp is not None else False),
                     show_cif_titles=(bool(getattr(_bp,'show_cif_titles', True)) if _bp is not None else True),
+                    skip_confirm=skip_confirm,
                 )
                 print(f"Saved session to {target_path}")
             except Exception as e:
@@ -1698,6 +1702,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                             push_state("font-change")
                             fs_val = float(fs)
                             apply_font_changes(new_size=fs_val)
+                            # Reposition top/right labels to match new tick label sizes
+                            position_top_xlabel()
+                            position_right_ylabel()
+                            fig.canvas.draw()
                     except Exception as e:
                         print(f"Error changing font size: {e}")
                 elif subkey == 'f':
@@ -1723,6 +1731,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                             push_state("font-change")
                             print(f"Setting font family to: {ft}")
                             apply_font_changes(new_family=ft)
+                            # Reposition top/right labels to match new tick label sizes
+                            position_top_xlabel()
+                            position_right_ylabel()
+                            fig.canvas.draw()
                     except Exception as e:
                         print(f"Error changing font family: {e}")
                 else:
@@ -2054,7 +2066,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     except Exception:
                         _bpcfg_files = []
                     if _bpcfg_files:
-                        print("Existing style files (.bps/.bpsg/.bpcfg):")
+                        print("Existing style files (.bps/.bpsg):")
                         for _i, _f in enumerate(_bpcfg_files, 1):
                             print(f"  {_i}: {_f}")
                     sub = input("Style submenu: (e=export, q=return, r=refresh): ").strip().lower()
@@ -2081,7 +2093,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     print("Available style files:")
                     for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
-                inp = input("Enter number or filename (.bps/.bpsg/.bpcfg; q=cancel): ").strip()
+                inp = input("Enter number or filename (.bps/.bpsg; q=cancel): ").strip()
                 if not inp or inp.lower() == 'q':
                     print("Canceled.")
                     continue
