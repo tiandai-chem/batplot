@@ -2048,13 +2048,13 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 style_menu_active = True
                 while style_menu_active:
                     print_style_info()
-                    # List available .bpcfg to speed up export/import workflows
+                    # List available style files (.bps, .bpsg, .bpcfg) to speed up export/import workflows
                     try:
-                        _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                        _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                     except Exception:
                         _bpcfg_files = []
                     if _bpcfg_files:
-                        print("Existing .bpcfg files:")
+                        print("Existing style files (.bps/.bpsg/.bpcfg):")
                         for _i, _f in enumerate(_bpcfg_files, 1):
                             print(f"  {_i}: {_f}")
                     sub = input("Style submenu: (e=export, q=return, r=refresh): ").strip().lower()

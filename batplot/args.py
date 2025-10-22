@@ -102,7 +102,7 @@ def _print_ec_help() -> None:
         "  batplot --all --dqdv my.bps            # Apply style to all dQdV plots\n"
         "  batplot --all --cpc geom.bpsg --mass 6 # Apply style+geom to all CPC plots\n\n"
         "Interactive (--interactive): choose cycles, colors/palettes, line widths, axis scales (linear/log/symlog),\n"
-        "rename axes, toggle ticks/titles/spines, print/export/import style (.bpcfg), save session (.pkl).\n"
+        "rename axes, toggle ticks/titles/spines, print/export/import style (.bps/.bpsg), save session (.pkl).\n"
         "Note: Batch mode exports SVG files automatically; --interactive is for single-file plotting only.\n"
     )
     print(msg)

@@ -32,7 +32,7 @@ Batplot supports three main figure types:
 
 **Key features:**
 - Interactive menu for live editing.
-- Save and reuse styles via `.bpcfg` files.
+- Save and reuse styles via `.bps` (style) or `.bpsg` (style+geometry) files.
 - Save and reload full sessions as `.pkl` files for future editing.
 
 ---

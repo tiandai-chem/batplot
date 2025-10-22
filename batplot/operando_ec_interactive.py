@@ -1938,13 +1938,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print("  (no EC line found)")
                 
                 print("-------------------------\n")
-                # List .bpcfg files for convenience
+                # List style files (.bps, .bpsg, .bpcfg) for convenience
                 try:
-                    _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith('.bpcfg')])
+                    _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
                 except Exception:
                     _bpcfg_files = []
                 if _bpcfg_files:
-                    print("Existing .bpcfg files:")
+                    print("Existing style files (.bps/.bpsg/.bpcfg):")
                     for _i, _f in enumerate(_bpcfg_files, 1):
                         print(f"  {_i}: {_f}")
                 sub = input("Style: (e=export, q=return): ").strip().lower()

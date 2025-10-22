@@ -11,7 +11,7 @@
 - **Operando Analysis**: Correlate in-situ characterizations (XRD/PDF/XAS) with electrochemical data
 - **Interactive plotting**: Real-time editing customized for each type of plottings
 - **Session Persistence**: Save and reload complete plot states with `.pkl` files
-- **Style Management**: Import/export plot styles as `.bpcfg` files
+- **Style Management**: Import/export plot styles as `.bps`/`.bpsg` files
 - **Batch Processing**: Plot multiple files simultaneously with automatic SVG export
 
 ## Installation
@@ -89,7 +89,7 @@ When launched with `--interactive`:
 - **Cycle/Scan Control**: Toggle visibility, change colors
 - **Styling**: Line widths, markers, transparency
 - **Axes**: Labels, limits, ticks, spine styles
-- **Export**: Save sessions (`.pkl`), styles (`.bpcfg`), or high-res images
+- **Export**: Save sessions (`.pkl`), styles (`.bps`/`.bpsg`), or high-res images
 - **Live Preview**: All changes update in real-time
 
 ## Documentation
