@@ -47,6 +47,20 @@ Batplot supports three main figure types:
 - Crystallography: `.cif` (reflection ticks/labels only)
 - Generic/undefined: `.xy`, `.dat` or other types (will read the first two columns and plot as x and y)
 
+### Plotting Modes
+
+**Single/Multiple Files**: Specify files individually for precise control.
+
+**All Files Together (`allfiles`)**: Plot all XY files in the current directory on the **same figure**. Perfect for comparing multiple patterns. Supports all options (--stack, --interactive, --xaxis, etc.).
+
+**Batch Mode (`--all`)**: Export each file as a **separate SVG**. Perfect for preparing publication figures. Supports options like --xaxis, --xrange, --wl, --raw.
+
+| Command | What it does | Interactive? | Output |
+|---------|--------------|--------------|--------|
+| `batplot file1.xy file2.xy` | Plot specific files together | ✅ Yes | Single figure |
+| `batplot allfiles` | Plot all XY files together | ✅ Yes | Single figure |
+| `batplot --all` | Export each file separately | ❌ No | Multiple SVG files |
+
 ### Example Usage
 
 ```bash
@@ -68,8 +82,23 @@ batplot file1.xye file2.xye. --wl 1.54 --stack --interactive
 batplot file1.xye:0.25995 file2.qye structure1.cif structure2.cif --stack --interactive
 # Stack two files with reference cif ticks and open the interactive menu
 
-batplot all
-# Save all supported files in the current folder as SVG images
+batplot allfiles
+# Plot all XY files in current directory on the same figure
+
+batplot allfiles --stack --interactive
+# Plot all XY files stacked with interactive menu
+
+batplot allfiles --xaxis 2theta --xrange 10 80 --interactive
+# Plot all files with custom axis, range, and interactive menu
+
+batplot --all
+# Batch mode: save all supported files in the current folder as SVG images
+
+batplot --all --xaxis 2theta --xrange 10 80
+# Batch mode with custom X-axis type and range
+
+batplot --all --wl 1.5406 --raw
+# Batch mode: convert 2theta to Q with wavelength 1.5406 Å, use raw intensity
 ```
 
 ---
@@ -129,18 +158,18 @@ When using `--cpc --interactive`, you get access to:
 Export all EC files in a directory to SVG format:
 
 ```bash
-batplot --gc all --mass 7.0
+batplot --gc --all --mass 7.0
 # Process all .mpt and .csv files in current directory (GC mode)
 # Note: --mass only required for .mpt files; .csv files already contain capacity data
 # Outputs saved to batplot_svg/ subdirectory
 
-batplot --cv all
+batplot --cv --all
 # Process all .mpt files (CV mode)
 
-batplot --dqdv all
+batplot --dqdv --all
 # Process all .csv files (dQdV mode)
 
-batplot --cpc all --mass 5.4
+batplot --cpc --all --mass 5.4
 # Process all .mpt and .csv files (CPC mode)
 # Note: --mass only required for .mpt files
 
@@ -204,3 +233,14 @@ batplot --operando --interactive
 batplot --operando --wl 0.25995 --interactive
 # Launch operando mode with interactive editing, converting x axis from 2theta to Q space
 ```
+
+---
+
+## Contact & Support
+
+For questions, bug reports, or feature requests:
+
+- **GitHub**: https://github.com/tiandai-chem/batplot
+- **Email**: tianda@uio.no
+
+Feel free to open an issue on GitHub or reach out via email!

@@ -99,10 +99,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             has_cif = any(f.lower().endswith('.cif') for f in args.files)
         except Exception:
             pass
-        col1 = ["c: colors", "f: font", "l: line", "t: toggle axes", "g: size"]
+        col1 = ["c: colors", "f: font", "l: line", "t: toggle axes", "g: size", "h: show/hide names"]
         if has_cif:
             col1.append("z: hkl")
-            col1.append("h: CIF titles")
+            col1.append("j: CIF titles")
         col2 = ["a: rearrange", "d: offset", "r: rename", "x: change X", "y: change Y"]
         col3 = ["v: find peaks", "n: crosshair", "p: print(export) style/geom", "i: import style/geom", "e: export figure", "s: save project", "b: undo", "q: quit"]
         if args.stack:
@@ -491,7 +491,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
     # NEW: export current style to .bpcfg
     def export_style_config(filename):
         cts = getattr(_bp, 'cif_tick_series', None) if _bp is not None else None
-        return _bp_export_style_config(filename, fig, ax, y_data_list, labels, delta, args, tick_state, cts)
+        return _bp_export_style_config(filename, fig, ax, y_data_list, labels, delta, args, tick_state, cts, label_text_objects)
 
     # NEW: apply imported style config (restricted application)
     def apply_style_config(filename):
@@ -963,7 +963,22 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error toggling hkl labels: {e}")
             continue
-        elif key == 'h':  # toggle CIF title labels (filename labels)
+        elif key == 'h':  # toggle curve name labels
+            try:
+                # Check first label's visibility
+                first_visible = label_text_objects[0].get_visible() if label_text_objects else True
+                new_state = not first_visible
+                # Toggle all curve name labels
+                for lbl in label_text_objects:
+                    lbl.set_visible(new_state)
+                # Store state on figure
+                fig._curve_names_visible = new_state
+                fig.canvas.draw_idle()
+                print(f"Curve name labels {'ON' if new_state else 'OFF'}.")
+            except Exception as e:
+                print(f"Error toggling curve names: {e}")
+            continue
+        elif key == 'j':  # toggle CIF title labels (filename labels)
             try:
                 # Flip visibility flag for CIF titles
                 cur = bool(getattr(_bp, 'show_cif_titles', True)) if _bp is not None else True
@@ -1758,6 +1773,37 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         print("Unknown option.")
             except Exception as e:
                 print(f"Error in resize submenu: {e}")
+        elif key == 'h':
+            # Toggle curve name labels visibility
+            try:
+                push_state("curve-names")
+                # Check current visibility from first label
+                current_visible = True
+                if label_text_objects and len(label_text_objects) > 0:
+                    try:
+                        current_visible = label_text_objects[0].get_visible()
+                    except Exception:
+                        current_visible = True
+                
+                # Toggle all labels
+                new_visible = not current_visible
+                for txt in label_text_objects:
+                    try:
+                        txt.set_visible(new_visible)
+                    except Exception:
+                        pass
+                
+                # Store state on figure for persistence
+                fig._curve_names_visible = new_visible
+                
+                status = "shown" if new_visible else "hidden"
+                print(f"Curve names {status}")
+                try:
+                    fig.canvas.draw()
+                except Exception:
+                    fig.canvas.draw_idle()
+            except Exception as e:
+                print(f"Error toggling curve names: {e}")
         elif key == 't':
             try:
                 while True:

@@ -165,15 +165,54 @@ def _apply_ec_style(fig, ax, cfg: dict):
 
 def batch_process(directory: str, args):
     print(f"Batch mode: scanning {directory}")
-    supported_ext = {'.xye', '.xy', '.qye', '.dat', '.csv', '.gr', '.nor', '.chik', '.chir', '.txt'}
+    # Known extensions that don't need --xaxis
+    known_axis_ext = {'.qye', '.gr', '.nor', '.chik', '.chir'}
+    # All acceptable data extensions (known + common generic formats)
+    known_ext = {'.xye', '.xy', '.qye', '.dat', '.csv', '.gr', '.nor', '.chik', '.chir', '.txt'}
+    # Extensions to exclude from processing
+    excluded_ext = {'.cif', '.pkl', '.py', '.md', '.json', '.yml', '.yaml', '.sh', '.bat', '.mpt'}
+    
     out_dir = os.path.join(directory, "batplot_svg")
     os.makedirs(out_dir, exist_ok=True)
-    files = [f for f in sorted(os.listdir(directory))
-             if os.path.splitext(f)[1].lower() in supported_ext and os.path.isfile(os.path.join(directory, f))]
+    
+    # Collect all files, including those with unknown extensions
+    files = []
+    unknown_ext_files = []
+    for f in sorted(os.listdir(directory)):
+        if not os.path.isfile(os.path.join(directory, f)):
+            continue
+        ext = os.path.splitext(f)[1].lower()
+        # Skip excluded extensions and files without extensions
+        if ext in excluded_ext or not ext:
+            continue
+        # Include known extensions
+        if ext in known_ext:
+            files.append(f)
+        else:
+            # Include unknown extensions (require --xaxis)
+            files.append(f)
+            unknown_ext_files.append(f)
+    
     if not files:
-        print("No supported data files found.")
+        print("No data files found.")
         return
-    print(f"Found {len(files)} supported files. Exporting SVG plots to {out_dir}")
+    
+    # Check if --xaxis is required for unknown extensions
+    if unknown_ext_files and not args.xaxis:
+        print(f"Error: Found {len(unknown_ext_files)} file(s) with unknown extension(s) that require --xaxis:")
+        for uf in unknown_ext_files[:5]:  # Show first 5
+            print(f"  - {uf}")
+        if len(unknown_ext_files) > 5:
+            print(f"  ... and {len(unknown_ext_files) - 5} more")
+        print("\nKnown extensions that don't require --xaxis: .qye, .gr, .nor, .chik, .chir")
+        print("Please specify x-axis type with --xaxis (options: 2theta, Q, r, energy, k, rft)")
+        print("Example: batplot --all --xaxis 2theta")
+        return
+    
+    if unknown_ext_files:
+        print(f"Note: Processing {len(unknown_ext_files)} file(s) with unknown extension(s) using --xaxis {args.xaxis}")
+    
+    print(f"Found {len(files)} files. Exporting SVG plots to {out_dir}")
     for fname in files:
         fpath = os.path.join(directory, fname)
         ext = os.path.splitext(fname)[1].lower()
@@ -219,6 +258,12 @@ def batch_process(directory: str, args):
                     axis_mode = 'rft'
                 elif args.xaxis:
                     axis_mode = args.xaxis
+                    # Print note once per unknown extension type
+                    if not hasattr(args, '_batch_warned_extensions'):
+                        args._batch_warned_extensions = set()
+                    if ext and ext not in args._batch_warned_extensions and ext not in known_axis_ext:
+                        args._batch_warned_extensions.add(ext)
+                        print(f"  Note: Reading '{ext}' files as 2-column (x, y) data with x-axis = {args.xaxis}")
                 else:
                     raise ValueError(f"Cannot determine X-axis type for file {fname} (need .qye/.gr/.nor/.chik/.chir or --xaxis).")
 
@@ -247,6 +292,11 @@ def batch_process(directory: str, args):
             # Plot and save
             fig_b, ax_b = plt.subplots(figsize=(6,4))
             ax_b.plot(x_plot, y_plot, lw=1)
+            
+            # Apply x-range if specified
+            if args.xrange:
+                ax_b.set_xlim(args.xrange[0], args.xrange[1])
+            
             if axis_mode == 'Q':
                 ax_b.set_xlabel(r"Q ($\mathrm{\AA}^{-1}$)")
             elif axis_mode == 'r':

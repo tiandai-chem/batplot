@@ -215,6 +215,8 @@ def dump_session(
             'has_bottom_x': bool(ax.get_xlabel()),
             'has_left_y': bool(ax.get_ylabel()),
         }
+        # Save curve names visibility
+        sess['curve_names_visible'] = bool(getattr(fig, '_curve_names_visible', True))
         if skip_confirm:
             target = filename
         else:
@@ -819,6 +821,22 @@ def load_operando_session(filename: str):
                     if ec_tick_widths.get('y_minor'): ec_ax.tick_params(axis='y', which='minor', width=ec_tick_widths['y_minor'])
                 except Exception:
                     pass
+
+    # Persist fixed inch parameters from loaded session to attributes
+    # This ensures interactive menu can read correct values
+    try:
+        setattr(cbar_ax, '_fixed_cb_w_in', float(li['cb_w_in']))
+        setattr(cbar_ax, '_fixed_cb_gap_in', float(li['cb_gap_in']))
+        setattr(ax, '_fixed_ax_w_in', float(li['ax_w_in']))
+        setattr(ax, '_fixed_ax_h_in', float(li['ax_h_in']))
+        if ec_ax is not None:
+            setattr(ec_ax, '_fixed_ec_gap_in', float(li.get('ec_gap_in', 0.0)))
+            setattr(ec_ax, '_fixed_ec_w_in', float(li.get('ec_w_in', 0.0)))
+            # Set flags to prevent auto-adjustment of loaded session geometry
+            setattr(ec_ax, '_ec_gap_adjusted', True)
+            setattr(ec_ax, '_ec_op_width_adjusted', True)
+    except Exception:
+        pass
 
     # Apply saved fonts and trigger a refresh redraw
     try:

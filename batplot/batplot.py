@@ -1121,10 +1121,55 @@ def batplot_main() -> int:
         if sole.lower() == 'all':
             batch_process(os.getcwd(), args)
             exit()
+        elif sole.lower() == 'allfiles':
+            # Plot all XY files in current directory on the same figure (including arbitrary extensions)
+            known_ext = {'.xye', '.xy', '.qye', '.dat', '.csv', '.gr', '.nor', '.chik', '.chir', '.txt'}
+            excluded_ext = {'.cif', '.pkl', '.py', '.md', '.json', '.yml', '.yaml', '.sh', '.bat'}
+            all_xy_files = []
+            unknown_ext_files = []
+            
+            for f in sorted(os.listdir(os.getcwd())):
+                if not os.path.isfile(os.path.join(os.getcwd(), f)):
+                    continue
+                ext = os.path.splitext(f)[1].lower()
+                # Skip excluded extensions
+                if ext in excluded_ext or not ext:
+                    continue
+                # Include known extensions
+                if ext in known_ext:
+                    all_xy_files.append(f)
+                else:
+                    # Include unknown extensions (will be treated as 2-column data)
+                    all_xy_files.append(f)
+                    unknown_ext_files.append(f)
+            
+            if not all_xy_files:
+                print("No data files found in current directory.")
+                exit(1)
+            
+            if unknown_ext_files:
+                print(f"Warning: Found {len(unknown_ext_files)} file(s) with unknown extension(s):")
+                for uf in unknown_ext_files[:5]:  # Show first 5
+                    print(f"  - {uf}")
+                if len(unknown_ext_files) > 5:
+                    print(f"  ... and {len(unknown_ext_files) - 5} more")
+                print("These will be read as 2-column (x, y) data.")
+                if not args.xaxis:
+                    print("Tip: Use --xaxis to specify the x-axis type (e.g., --xaxis 2theta, --xaxis Q, --xaxis r)")
+            
+            print(f"Found {len(all_xy_files)} files to plot together")
+            args.files = all_xy_files
+            # Continue to normal plotting mode with all files
         elif os.path.isdir(sole):
             batch_process(os.path.abspath(sole), args)
             exit()
 
+    # --- XY Batch Mode: check for --all flag for XY files ---
+    # Handle --all flag for XY batch processing (consistent with EC batch mode)
+    if not ec_mode_active and getattr(args, 'all', None) is not None:
+        batch_process(os.getcwd(), args)
+        exit()
+    
     # ---------------- Normal (multi-file) path continues below ----------------
     # Apply conditional default for delta (normal mode only)
     if args.delta is None:
@@ -1398,6 +1443,14 @@ def batplot_main() -> int:
             txt = ax.text(1.0, 1.0, f"{i+1}: {lab}", ha='right', va='top', transform=ax.transAxes,
                           fontsize=plt.rcParams.get('font.size', 12))
             label_text_objects.append(txt)
+        # Restore curve names visibility
+        try:
+            curve_names_visible = bool(sess.get('curve_names_visible', True))
+            for txt in label_text_objects:
+                txt.set_visible(curve_names_visible)
+            fig._curve_names_visible = curve_names_visible
+        except Exception:
+            pass
         # CIF tick series (optional)
         cif_tick_series = sess.get('cif_tick_series') or []
         cif_hkl_map = {k: [tuple(v) for v in val] for k,val in sess.get('cif_hkl_map', {}).items()}
@@ -1816,6 +1869,25 @@ def batplot_main() -> int:
             except Exception as e:
                 print(f"Error reading FullProf-style {fname}: {e}")
                 continue
+        else:
+            # Unknown extension: attempt to read as 2-column (x, y) data
+            try:
+                data = robust_loadtxt_skipheader(fname)
+            except Exception as e_read:
+                print(f"Error reading {fname} (unknown extension '{file_ext}'): {e_read}")
+                continue
+            if data.ndim == 1: data = data.reshape(1, -1)
+            if data.shape[1] < 2:
+                print(f"Invalid data format in {fname}: expected at least 2 columns, got {data.shape[1]}")
+                continue
+            x, y = data[:, 0], data[:, 1]
+            e = data[:, 2] if data.shape[1] >= 3 else None
+            # Warn once per unknown extension type
+            if not hasattr(args, '_warned_extensions'):
+                args._warned_extensions = set()
+            if file_ext and file_ext not in args._warned_extensions:
+                args._warned_extensions.add(file_ext)
+                print(f"Note: Reading '{file_ext}' file as 2-column (x, y) data. Use --xaxis to specify x-axis type if needed.")
 
         # ---- X-axis conversion logic updated (no conversion for energy) ----
         if use_Q and file_ext not in (".qye", ".gr", ".nor"):
@@ -1943,6 +2015,9 @@ def batplot_main() -> int:
 
     # Ensure consistent initial placement (especially for stacked mode)
     update_labels(ax, y_data_list, label_text_objects, args.stack)
+    
+    # Initialize curve names visibility (default to visible)
+    fig._curve_names_visible = True
 
     # ---------------- CIF tick overlay (after labels placed) ----------------
     def _ensure_wavelength_for_2theta():

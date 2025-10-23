@@ -31,8 +31,19 @@ batplot pattern.xye --xaxis 2theta
 # Interactive styling
 batplot pattern.xye --interactive
 
+# Plot all XY files in directory on same figure
+batplot allfiles
+batplot allfiles --stack --interactive
+batplot allfiles --xaxis 2theta --xrange 10 80
+
 # Batch mode: export all XY files to SVG
-batplot all
+batplot --all
+
+# Batch mode with options: custom axis and range
+batplot --all --xaxis 2theta --xrange 10 80
+
+# Batch mode: convert 2theta to Q and use raw intensity
+batplot --all --wl 1.5406 --raw
 ```
 
 ### Electrochemistry
@@ -54,10 +65,10 @@ batplot stability.mpt --cpc --mass 5.4 --interactive
 batplot file1.csv file2.csv file3.mpt --cpc --mass 5.4 --interactive
 
 # Batch processing: export all EC files to SVG
-batplot --gc all         # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
-batplot --cv all                    # All .mpt files (CV mode)
-batplot --dqdv all                  # All .csv files (dQdV mode)
-batplot --cpc all --mass 6.2        # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
+batplot --gc --all --mass 7.0       # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
+batplot --cv --all                  # All .mpt files (CV mode)
+batplot --dqdv --all                # All .csv files (dQdV mode)
+batplot --cpc --all --mass 6.2      # All .mpt/.csv files (.mpt needs --mass, .csv doesn't)
 
 # Batch processing with style/geometry: apply consistent formatting to all files
 batplot --all mystyle.bps --gc --mass 7.0   # Apply .bps style to all GC files
@@ -106,7 +117,9 @@ For detailed usage, see [USER_MANUAL.md](USER_MANUAL.md)
 
 See [LICENSE](LICENSE)
 
-## Author
+## Author & Contact
 
 Tian Dai (tianda@uio.no)  
 University of Oslo
+
+**GitHub**: https://github.com/tiandai-chem/batplot

@@ -1481,7 +1481,11 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         'right':  {'spine': _get_spine_visible('right'),  'ticks': bool(tick_state.get('r_ticks', tick_state.get('ry', False))), 'minor': bool(tick_state['mry']), 'labels': bool(tick_state.get('r_labels', tick_state.get('ry', False))), 'title': bool(getattr(ax, '_right_ylabel_on', False))},
                     }
                     setattr(fig, '_ec_wasd_state', wasd)
-                def _apply_wasd():
+                def _apply_wasd(changed_sides=None):
+                    # If no changed_sides specified, reposition all sides (for load style, etc.)
+                    if changed_sides is None:
+                        changed_sides = {'bottom', 'top', 'left', 'right'}
+                    
                     # Spines
                     for name in ('top','bottom','left','right'):
                         _set_spine_visible(name, bool(wasd[name]['spine']))
@@ -1507,7 +1511,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             try: ax._stored_xlabel = ax.get_xlabel()
                             except Exception: ax._stored_xlabel = ''
                         ax.set_xlabel("")
-                    ax._top_xlabel_on = bool(wasd['top']['title']); _position_top_xlabel()
+                    ax._top_xlabel_on = bool(wasd['top']['title'])
                     if bool(wasd['left']['title']):
                         if hasattr(ax,'_stored_ylabel') and isinstance(ax._stored_ylabel,str) and ax._stored_ylabel:
                             ax.set_ylabel(ax._stored_ylabel)
@@ -1516,11 +1520,18 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             try: ax._stored_ylabel = ax.get_ylabel()
                             except Exception: ax._stored_ylabel = ''
                         ax.set_ylabel("")
-                    ax._right_ylabel_on = bool(wasd['right']['title']); _position_right_ylabel()
-                    try:
-                        fig.canvas.draw_idle()
-                    except Exception:
-                        pass
+                    ax._right_ylabel_on = bool(wasd['right']['title'])
+                    
+                    # Only reposition sides that were actually changed
+                    # This prevents unnecessary title movement when toggling unrelated elements
+                    if 'bottom' in changed_sides:
+                        _ui_position_bottom_xlabel(ax, fig, tick_state)
+                    if 'top' in changed_sides:
+                        _position_top_xlabel()
+                    if 'left' in changed_sides:
+                        _ui_position_left_ylabel(ax, fig, tick_state)
+                    if 'right' in changed_sides:
+                        _position_right_ylabel()
                 def _sync_tick_state():
                     # Write new separate keys
                     tick_state['t_ticks'] = bool(wasd['top']['ticks'])
@@ -1605,6 +1616,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         continue
                     push_state("wasd-toggle")
                     changed = False
+                    changed_sides = set()  # Track which sides were affected
                     for p in cmd.split():
                         if len(p) != 2:
                             print(f"Unknown code: {p}"); continue
@@ -1614,17 +1626,15 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         key = {'1':'spine','2':'ticks','3':'minor','4':'labels','5':'title'}[p[1]]
                         wasd[side][key] = not bool(wasd[side][key])
                         changed = True
+                        # Track which side was changed to only reposition affected sides
+                        # Labels and titles affect positioning, but spine/tick toggles don't necessarily
+                        if key in ('labels', 'title'):
+                            changed_sides.add(side)
                     if changed:
-                        _sync_tick_state(); _apply_wasd(); _update_tick_visibility()
-                        # Draw canvas to ensure tick labels are rendered before positioning top/right labels
-                        try:
-                            fig.canvas.draw()
-                        except Exception:
-                            try:
-                                fig.canvas.draw_idle()
-                            except Exception:
-                                pass
-                        _ui_position_top_xlabel(ax, fig, tick_state); _ui_position_right_ylabel(ax, fig, tick_state)
+                        _sync_tick_state()
+                        _apply_wasd(changed_sides if changed_sides else None)
+                        _update_tick_visibility()
+                        # Single draw at the end after all positioning is complete
                         try:
                             fig.canvas.draw()
                         except Exception:

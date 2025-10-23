@@ -124,6 +124,15 @@ def print_style_info(
 
     # Omit non-style global flags (mode/raw/autoscale/delta)
 
+    # Curve names visibility
+    names_visible = True
+    if label_text_objects and len(label_text_objects) > 0:
+        try:
+            names_visible = bool(label_text_objects[0].get_visible())
+        except Exception:
+            names_visible = True
+    print(f"Curve names (h): {'shown' if names_visible else 'hidden'}")
+
     # Curves
     print("Lines (style):")
     for i, ln in enumerate(ax.lines):
@@ -144,6 +153,7 @@ def export_style_config(
     args,
     tick_state: Dict[str, bool],
     cif_tick_series: Optional[List[tuple]] = None,
+    label_text_objects: Optional[List] = None,
 ) -> None:
     """Export style configuration after displaying a summary and prompting the user.
     
@@ -260,6 +270,13 @@ def export_style_config(
             "has_bottom_x": bool(ax.get_xlabel()),
             "has_left_y": bool(ax.get_ylabel()),
         }
+        # Save curve names visibility
+        cfg["curve_names_visible"] = True  # Default to visible
+        if label_text_objects and len(label_text_objects) > 0:
+            try:
+                cfg["curve_names_visible"] = bool(label_text_objects[0].get_visible())
+            except Exception:
+                pass
         if cif_tick_series:
             cfg["cif_ticks"] = [
                 {"index": i, "color": color}
@@ -647,6 +664,17 @@ def apply_style_config(
                     ax._cif_draw_func()
                 except Exception:
                     pass
+
+        # Restore curve names visibility
+        if "curve_names_visible" in cfg:
+            try:
+                visible = bool(cfg["curve_names_visible"])
+                for txt in label_text_objects:
+                    txt.set_visible(visible)
+                # Store on figure for persistence
+                fig._curve_names_visible = visible
+            except Exception as e:
+                print(f"Warning: Could not restore curve names visibility: {e}")
 
         # Re-run label placement with current mode (no mode changes via Styles)
         update_labels_func(ax, y_data_list, label_text_objects, args.stack)

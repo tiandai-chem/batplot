@@ -14,6 +14,8 @@ import numpy as np
 # Import UI positioning functions
 from .ui import position_top_xlabel as _ui_position_top_xlabel
 from .ui import position_right_ylabel as _ui_position_right_ylabel
+from .ui import position_bottom_xlabel as _ui_position_bottom_xlabel
+from .ui import position_left_ylabel as _ui_position_left_ylabel
 
 
 def _get_fig_size(fig) -> Tuple[float, float]:
@@ -100,210 +102,7 @@ def _apply_group_layout_inches(fig, ax, cbar_ax, ec_ax,
 
 
 def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
-    def _position_top_xlabel(axis, base_label: str = ''):
-        """Update top xlabel duplicate text based on current xlabel and visibility state.
-        Uses dynamic spacing to match bottom xlabel spacing."""
-        try:
-            on = bool(getattr(axis, '_top_xlabel_on', False))
-            if not on:
-                # Hide if off
-                txt = getattr(axis, '_top_xlabel_artist', None)
-                if txt is not None:
-                    txt.set_visible(False)
-                return
-            
-            # Try multiple sources for label text
-            label_text = axis.get_xlabel() or base_label or ''
-            if not label_text:
-                prev = getattr(axis, '_top_xlabel_artist', None)
-                if prev is not None and hasattr(prev, 'get_text'):
-                    label_text = prev.get_text() or ''
-            
-            # Get tick state for this axis
-            ts = getattr(axis, '_saved_tick_state', {})
-            
-            # Get renderer
-            try:
-                renderer = fig.canvas.get_renderer()
-            except Exception:
-                renderer = None
-            if renderer is None:
-                try:
-                    fig.canvas.draw()
-                    renderer = fig.canvas.get_renderer()
-                except Exception:
-                    renderer = None
-            
-            # Measure tick label height - prefer bottom for symmetry, fallback to top
-            dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
-            max_h_px = 0.0
-            
-            # First try bottom tick labels (for symmetry)
-            bottom_labels_on = bool(ts.get('b_labels', ts.get('bx', False)))
-            if bottom_labels_on and renderer is not None:
-                try:
-                    for t in axis.xaxis.get_major_ticks():
-                        lab = getattr(t, 'label1', None)
-                        if lab is not None and lab.get_visible():
-                            bb = lab.get_window_extent(renderer=renderer)
-                            if bb is not None:
-                                max_h_px = max(max_h_px, float(bb.height))
-                except Exception:
-                    pass
-            
-            # If no bottom labels, try top labels
-            if max_h_px == 0.0:
-                top_labels_on = bool(ts.get('t_labels', ts.get('tx', False)))
-                if top_labels_on and renderer is not None:
-                    try:
-                        for t in axis.xaxis.get_major_ticks():
-                            lab = getattr(t, 'label2', None)
-                            if lab is not None and lab.get_visible():
-                                bb = lab.get_window_extent(renderer=renderer)
-                                if bb is not None:
-                                    max_h_px = max(max_h_px, float(bb.height))
-                    except Exception:
-                        pass
-            
-            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
-            if max_h_px > 0:
-                tick_height_pts = max_h_px * 72.0 / dpi
-                dy_pts = tick_height_pts + 14.0  # 14pt gap to match bottom labelpad
-            else:
-                dy_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
-            
-            # Create offset transform
-            import matplotlib.transforms as mtransforms
-            import matplotlib as mpl
-            base_trans = axis.transAxes
-            off_trans = mtransforms.offset_copy(base_trans, fig=fig, x=0.0, y=dy_pts, units='points')
-            
-            # Get current font settings
-            cur_size = mpl.rcParams.get('font.size', 10)
-            cur_family = mpl.rcParams.get('font.sans-serif', ['DejaVu Sans'])
-            if cur_family:
-                cur_family = cur_family[0]
-            else:
-                cur_family = 'DejaVu Sans'
-            
-            txt = getattr(axis, '_top_xlabel_artist', None)
-            if txt is None:
-                # Create with current font settings
-                txt = axis.text(0.5, 1.0, label_text, ha='center', va='bottom',
-                               transform=off_trans, clip_on=False, fontsize=cur_size, family=cur_family)
-                axis._top_xlabel_artist = txt
-            else:
-                txt.set_text(label_text)
-                txt.set_transform(off_trans)
-                txt.set_visible(True)
-                # Always sync font with current settings
-                txt.set_size(cur_size)
-                txt.set_family(cur_family)
-        except Exception:
-            pass
-    
-    def _position_right_ylabel(axis, base_label: str = ''):
-        """Update right ylabel duplicate text based on current ylabel and visibility state.
-        Uses dynamic spacing to match left ylabel spacing."""
-        try:
-            on = bool(getattr(axis, '_right_ylabel_on', False))
-            if not on:
-                # Hide if off
-                txt = getattr(axis, '_right_ylabel_artist', None)
-                if txt is not None:
-                    txt.set_visible(False)
-                return
-            
-            # Try multiple sources for label text
-            label_text = axis.get_ylabel() or base_label or ''
-            if not label_text:
-                prev = getattr(axis, '_right_ylabel_artist', None)
-                if prev is not None and hasattr(prev, 'get_text'):
-                    label_text = prev.get_text() or ''
-            
-            # Get tick state for this axis
-            ts = getattr(axis, '_saved_tick_state', {})
-            
-            # Get renderer
-            try:
-                renderer = fig.canvas.get_renderer()
-            except Exception:
-                renderer = None
-            if renderer is None:
-                try:
-                    fig.canvas.draw()
-                    renderer = fig.canvas.get_renderer()
-                except Exception:
-                    renderer = None
-            
-            # Measure tick label width - prefer left for symmetry, fallback to right
-            dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
-            max_w_px = 0.0
-            
-            # First try left tick labels (for symmetry)
-            left_labels_on = bool(ts.get('l_labels', ts.get('ly', False)))
-            if left_labels_on and renderer is not None:
-                try:
-                    for t in axis.yaxis.get_major_ticks():
-                        lab = getattr(t, 'label1', None)
-                        if lab is not None and lab.get_visible():
-                            bb = lab.get_window_extent(renderer=renderer)
-                            if bb is not None:
-                                max_w_px = max(max_w_px, float(bb.width))
-                except Exception:
-                    pass
-            
-            # If no left labels, try right labels
-            if max_w_px == 0.0:
-                right_labels_on = bool(ts.get('r_labels', ts.get('ry', False)))
-                if right_labels_on and renderer is not None:
-                    try:
-                        for t in axis.yaxis.get_major_ticks():
-                            lab = getattr(t, 'label2', None)
-                            if lab is not None and lab.get_visible():
-                                bb = lab.get_window_extent(renderer=renderer)
-                                if bb is not None:
-                                    max_w_px = max(max_w_px, float(bb.width))
-                    except Exception:
-                        pass
-            
-            # Convert to points and add gap (match matplotlib's labelpad = 14pt)
-            if max_w_px > 0:
-                tick_width_pts = max_w_px * 72.0 / dpi
-                dx_pts = tick_width_pts + 14.0  # 14pt gap to match left labelpad
-            else:
-                dx_pts = 6.0  # Minimal spacing when no tick labels (match small labelpad)
-            
-            # Create offset transform
-            import matplotlib.transforms as mtransforms
-            import matplotlib as mpl
-            base_trans = axis.transAxes
-            off_trans = mtransforms.offset_copy(base_trans, fig=fig, x=dx_pts, y=0.0, units='points')
-            
-            # Get current font settings
-            cur_size = mpl.rcParams.get('font.size', 10)
-            cur_family = mpl.rcParams.get('font.sans-serif', ['DejaVu Sans'])
-            if cur_family:
-                cur_family = cur_family[0]
-            else:
-                cur_family = 'DejaVu Sans'
-            
-            txt = getattr(axis, '_right_ylabel_artist', None)
-            if txt is None:
-                # Create with current font settings
-                txt = axis.text(1.0, 0.5, label_text, rotation=90, ha='left', va='center',
-                               transform=off_trans, clip_on=False, fontsize=cur_size, family=cur_family)
-                axis._right_ylabel_artist = txt
-            else:
-                txt.set_text(label_text)
-                txt.set_transform(off_trans)
-                txt.set_visible(True)
-                # Always sync font with current settings
-                txt.set_size(cur_size)
-                txt.set_family(cur_family)
-        except Exception:
-            pass
-    
+
     def _renormalize_to_visible():
         """Set imshow clim to min/max of currently visible region (based on ax x/y limits)."""
         try:
@@ -493,6 +292,27 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     # Update the ylabel object directly to match axis label sizes exactly
                     cbar.ax.yaxis.label.set_size(size)
                 except Exception: pass
+        
+        # Update title distances after font size changes (unified UI positioning functions)
+        for a in axes:
+            if a is None:
+                continue
+            try:
+                # Get current tick state for this axis
+                tick_state = getattr(a, '_saved_tick_state', {
+                    'b_labels': True, 'bx': True,
+                    't_labels': False, 'tx': False,
+                    'l_labels': True, 'ly': True,
+                    'r_labels': False, 'ry': False,
+                })
+                # Call all four UI positioning functions to update distances
+                _ui_position_bottom_xlabel(a, fig, tick_state)
+                _ui_position_top_xlabel(a, fig, tick_state)
+                _ui_position_left_ylabel(a, fig, tick_state)
+                _ui_position_right_ylabel(a, fig, tick_state)
+            except Exception:
+                pass
+        
         try:
             fig.canvas.draw()
         except Exception:
@@ -1107,6 +927,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"Save failed: {e}")
             print_menu(); continue
         if cmd == 'h':
+            # Always read fresh value from attribute to avoid stale cached value
+            ax_h_in = getattr(ax, '_fixed_ax_h_in', ax_h_in)
             print(f"Current height: {ax_h_in:.2f} in")
             val = input("New height (inches): ").strip()
             if val:
@@ -1394,10 +1216,14 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                'labels': bool(actual['right_labels']) if actual else bool(ts.get('r_labels', ts.get('ry', False))), 
                                'title': bool(target.get_ylabel()) if target is ec_ax else bool(getattr(target, '_right_ylabel_on', False))},
                 }
-                def _apply_wasd_axis(axis, wasd_state):
+                def _apply_wasd_axis(axis, wasd_state, changed_sides=None):
                     # Determine which sides are available for this pane
                     is_ec = (axis is ec_ax)
                     is_operando = (axis is ax)
+                    
+                    # If no changed_sides specified, reposition all sides (for load style, etc.)
+                    if changed_sides is None:
+                        changed_sides = {'bottom', 'top', 'left', 'right'}
                     
                     # Spines - only apply available sides
                     for name in ('top','bottom','left','right'):
@@ -1443,25 +1269,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         # Fallback: control both sides
                         axis.tick_params(axis='y', which='minor', left=bool(wasd_state['left']['minor']), right=bool(wasd_state['right']['minor']), labelleft=False, labelright=False)
                     
-                    # Force a canvas draw to ensure tick labels are rendered before measuring
-                    try:
-                        fig.canvas.draw()
-                    except Exception:
-                        try:
-                            fig.canvas.draw_idle()
-                        except Exception:
-                            pass
-                    
-                    # Titles - only apply available sides
-                    if bool(wasd_state['bottom']['title']):
-                        if hasattr(axis,'_stored_xlabel') and isinstance(axis._stored_xlabel,str) and axis._stored_xlabel:
-                            axis.set_xlabel(axis._stored_xlabel)
-                    else:
-                        if not hasattr(axis,'_stored_xlabel'):
-                            try: axis._stored_xlabel = axis.get_xlabel()
-                            except Exception: axis._stored_xlabel = ''
-                        axis.set_xlabel("")
-                    
                     # Build tick_state dict from current wasd_state for UI functions
                     current_tick_state = {
                         't_labels': bool(wasd_state['top']['labels']),
@@ -1474,10 +1281,22 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         'ry': bool(wasd_state['right']['labels']),
                     }
                     
-                    axis._top_xlabel_on = bool(wasd_state['top']['title'])
-                    _ui_position_top_xlabel(axis, fig, current_tick_state)
+                    # Store tick state for future reference
+                    axis._saved_tick_state = current_tick_state
                     
-                    # Y-axis title: only apply for available sides
+                    # X-axis titles (bottom and top)
+                    if bool(wasd_state['bottom']['title']):
+                        if hasattr(axis,'_stored_xlabel') and isinstance(axis._stored_xlabel,str) and axis._stored_xlabel:
+                            axis.set_xlabel(axis._stored_xlabel)
+                    else:
+                        if not hasattr(axis,'_stored_xlabel'):
+                            try: axis._stored_xlabel = axis.get_xlabel()
+                            except Exception: axis._stored_xlabel = ''
+                        axis.set_xlabel("")
+                    
+                    axis._top_xlabel_on = bool(wasd_state['top']['title'])
+                    
+                    # Y-axis titles - only apply for available sides
                     if is_operando:
                         # Operando panel: only control left ylabel
                         if bool(wasd_state['left']['title']):
@@ -1488,18 +1307,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 try: axis._stored_ylabel = axis.get_ylabel()
                                 except Exception: axis._stored_ylabel = ''
                             axis.set_ylabel("")
-                        # Don't touch right ylabel for operando
+                        # Right ylabel is disabled for operando
+                        axis._right_ylabel_on = False
                     elif is_ec:
                         # EC panel: control the actual ylabel (already positioned right)
-                        # Don't use duplicate artist - just show/hide the actual ylabel
-                        # First, hide any duplicate artist if it exists
-                        dup = getattr(axis, '_right_ylabel_artist', None)
-                        if dup is not None:
-                            try:
-                                dup.set_visible(False)
-                            except Exception:
-                                pass
-                        
                         if bool(wasd_state['right']['title']):
                             if hasattr(axis,'_stored_ylabel') and isinstance(axis._stored_ylabel,str) and axis._stored_ylabel:
                                 axis.set_ylabel(axis._stored_ylabel)
@@ -1508,7 +1319,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 try: axis._stored_ylabel = axis.get_ylabel()
                                 except Exception: axis._stored_ylabel = ''
                             axis.set_ylabel("")
-                        # Don't touch left ylabel for EC
+                        # Left ylabel is disabled for EC (hide any duplicate artist)
+                        # Note: EC uses the actual ylabel which is already on the right side
                     else:
                         # Fallback: control both
                         if bool(wasd_state['left']['title']):
@@ -1520,7 +1332,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 except Exception: axis._stored_ylabel = ''
                             axis.set_ylabel("")
                         axis._right_ylabel_on = bool(wasd_state['right']['title'])
-                        _position_right_ylabel(axis, base_ylabel)
+                    
+                    # Only reposition sides that were actually changed
+                    # This prevents unnecessary title movement when toggling unrelated elements
+                    if 'bottom' in changed_sides:
+                        _ui_position_bottom_xlabel(axis, fig, current_tick_state)
+                    if 'top' in changed_sides:
+                        _ui_position_top_xlabel(axis, fig, current_tick_state)
+                    if 'left' in changed_sides:
+                        _ui_position_left_ylabel(axis, fig, current_tick_state)
+                    if 'right' in changed_sides:
+                        _ui_position_right_ylabel(axis, fig, current_tick_state)
                 
                 print("WASD toggles: direction (w/a/s/d) x action (1..5)")
                 print("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title")
@@ -1594,6 +1416,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             print("(right spine 'd' not available for operando panel)")
                         continue
                     changed = False
+                    changed_sides = set()  # Track which sides were affected
                     for p in cmd2.split():
                         if len(p) != 2:
                             print("Unknown code."); continue
@@ -1609,6 +1432,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         key = {'1':'spine','2':'ticks','3':'minor','4':'labels','5':'title'}[p[1]]
                         wasd[side][key] = not bool(wasd[side][key])
                         changed = True
+                        # Track which side was changed to only reposition affected sides
+                        # Labels and titles affect positioning, but spine/tick toggles don't necessarily
+                        if key in ('labels', 'title'):
+                            changed_sides.add(side)
                         # Sync new separate keys + legacy tick state for compatibility
                         if side == 'top' and key == 'ticks':
                             ts['t_ticks'] = bool(wasd['top']['ticks'])
@@ -1644,7 +1471,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             ts['mry'] = bool(wasd['right']['minor'])
                     if changed:
                         _snapshot("toggle-ticks")
-                        _apply_wasd_axis(target, wasd)
+                        _apply_wasd_axis(target, wasd, changed_sides if changed_sides else None)
+                        # Single draw at the end after all positioning is complete
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
                         try:
                             target._saved_tick_state = dict(ts)
                         except Exception:
@@ -1685,11 +1517,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         elif cmd == 'oz':
             try:
                 cur = im.get_clim()
-                print(f"Current normalized intensity range: {cur[0]:.4g} {cur[1]:.4g}")
+                print(f"Current color scale range: {cur[0]:.4g} to {cur[1]:.4g}")
             except Exception:
-                print("Could not retrieve current intensity range")
+                print("Could not retrieve current color scale range")
             
-            # Calculate auto-normalized range based on current x-range
+            # Calculate actual intensity range in the visible (current X/Y) area
             try:
                 arr = np.asarray(im.get_array(), dtype=float)
                 if arr.ndim == 2 and arr.size > 0:
@@ -1722,27 +1554,39 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     if finite.size:
                         auto_lo = float(np.min(finite))
                         auto_hi = float(np.max(finite))
-                        print(f"Auto-normalized range (based on current x-range): {auto_lo:.4g} {auto_hi:.4g}")
+                        print(f"Actual intensity range in visible area: {auto_lo:.4g} to {auto_hi:.4g}")
+                        auto_available = True
                     else:
-                        print("Auto-normalization unavailable (no finite data in view)")
+                        print("No finite intensity data in visible area")
+                        auto_available = False
                 else:
-                    print("Auto-normalization unavailable")
-            except Exception:
-                print("Auto-normalization unavailable")
+                    print("No intensity data available")
+                    auto_available = False
+            except Exception as e:
+                print(f"Could not compute intensity range in visible area: {e}")
+                auto_available = False
             
-            line = input("New intensity range (min max, a=auto, blank=cancel): ").strip()
+            if auto_available:
+                line = input("New intensity range (min max, a=auto-fit to visible, blank=cancel): ").strip()
+            else:
+                line = input("New intensity range (min max, blank=cancel): ").strip()
+            
             if line:
                 _snapshot("operando-intensity-range")
                 try:
                     if line.lower() == 'a':
-                        # Apply auto-normalization
-                        _renormalize_to_visible()
-                        fig.canvas.draw_idle()
-                        try:
-                            new_cur = im.get_clim()
-                            print(f"Applied auto-normalized range: {new_cur[0]:.4g} {new_cur[1]:.4g}")
-                        except Exception:
-                            print("Auto-normalization applied")
+                        # Apply auto-normalization to visible data
+                        if auto_available:
+                            im.set_clim(auto_lo, auto_hi)
+                            try:
+                                if cbar is not None:
+                                    cbar.update_normal(im)
+                            except Exception:
+                                pass
+                            fig.canvas.draw_idle()
+                            print(f"Applied auto-fit range: {auto_lo:.4g} to {auto_hi:.4g}")
+                        else:
+                            print("Auto-fit unavailable: no finite data in visible area")
                     else:
                         lo, hi = map(float, line.split())
                         im.set_clim(lo, hi)
@@ -1752,10 +1596,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         except Exception:
                             pass
                         fig.canvas.draw_idle()
+                        print(f"Applied intensity range: {lo:.4g} to {hi:.4g}")
                 except Exception as e:
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd in ('ow'):
+            # Always read fresh value from attribute to avoid stale cached value
+            ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_w_in)
             print(f"Current operando width: {ax_w_in:.2f} in")
             val = input("New width (inches): ").strip()
             if val:
@@ -1768,6 +1615,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid width: {e}")
             print_menu()
         elif cmd == 'ew':
+            # Always read fresh value from attribute to avoid stale cached value
+            ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
             print(f"Current EC width: {ec_w_in:.2f} in")
             val = input("New EC width (inches): ").strip()
             if val:
@@ -1844,7 +1693,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 fsize = plt.rcParams.get('font.size', None)
                 cmap_name = getattr(im.get_cmap(), 'name', None)
                 print("\n--- Operando+EC Style ---")
-                print("Commands: oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
+                print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
+                print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
+                print("Commands (EC): et(time range), ey(Y-axis type), er(rename)")
                 print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
                 print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\", EC width (ew)={ec_w_in:.3f}\"")
                 
@@ -1857,6 +1708,24 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 
                 print(f"Font (f): family='{fam}', size={fsize}")
                 print(f"Operando colormap (oc): {cmap_name}")
+                
+                # Display intensity range (oz command)
+                try:
+                    clim = im.get_clim()
+                    print(f"Operando intensity range (oz): {clim[0]:.4g} to {clim[1]:.4g}")
+                except Exception:
+                    print("Operando intensity range (oz): N/A")
+                
+                # Display EC Y-axis mode (ey command)
+                ec_y_mode = getattr(ec_ax, '_ec_y_mode', 'time')
+                print(f"EC Y-axis mode (ey): {ec_y_mode}")
+                if ec_y_mode == 'ions':
+                    ion_params = getattr(ec_ax, '_ion_params', {})
+                    if ion_params:
+                        mass_mg = ion_params.get('mass_mg', 'N/A')
+                        cap_per_ion = ion_params.get('cap_per_ion_mAh_g', 'N/A')
+                        start_ions = ion_params.get('start_ions', 'N/A')
+                        print(f"  Ion params: mass={mass_mg} mg, cap/ion={cap_per_ion} mAh/g, start={start_ions}")
                 
                 # Display operando pane tick visibility (t>o command: aws12345, 'd' not available)
                 def _onoff(v): return 'ON ' if bool(v) else 'off'
@@ -2052,6 +1921,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     op_reversed = bool(op_ylim_cur[0] > op_ylim_cur[1])
                     ec_reversed = bool(ec_ylim_cur[0] > ec_ylim_cur[1])
                     
+                    # Capture intensity range (oz command)
+                    try:
+                        clim = im.get_clim()
+                        intensity_range = [float(clim[0]), float(clim[1])]
+                    except Exception:
+                        intensity_range = None
+                    
+                    # Capture ions mode state (ey command)
+                    ec_y_mode = getattr(ec_ax, '_ec_y_mode', 'time')
+                    ion_params = getattr(ec_ax, '_ion_params', None)
+                    
                     # Build config based on choice
                     if choice == 'ps':
                         cfg = {
@@ -2059,8 +1939,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             'version': 2,
                             'figure': {'canvas_size': [fig_w, fig_h]},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
-                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params},
                             'font': {'family': fam, 'size': fsize},
                         }
                         default_ext = '.bps'
@@ -2070,8 +1950,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             'version': 2,
                             'figure': {'canvas_size': [fig_w, fig_h]},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
-                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params},
                             'font': {'family': fam, 'size': fsize},
                             'axes_geometry': _get_geometry_snapshot(ax, ec_ax),
                         }
@@ -2445,6 +2325,105 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                     ec_ax._saved_time_ylim = (hi, lo)
                     except Exception as e:
                         print(f"Warning: Could not apply EC reverse: {e}")
+                    
+                    # Apply intensity range (oz command)
+                    try:
+                        intensity_range = op.get('intensity_range')
+                        if intensity_range and isinstance(intensity_range, (list, tuple)) and len(intensity_range) == 2:
+                            im.set_clim(float(intensity_range[0]), float(intensity_range[1]))
+                            print(f"Applied intensity range: {intensity_range[0]:.4g} to {intensity_range[1]:.4g}")
+                    except Exception as e:
+                        print(f"Warning: Could not apply intensity range: {e}")
+                    
+                    # Apply ions mode (ey command)
+                    try:
+                        ec_cfg = cfg.get('ec', {})
+                        ec_y_mode = ec_cfg.get('y_mode', 'time')
+                        ion_params = ec_cfg.get('ion_params')
+                        
+                        if ec_y_mode == 'ions' and ion_params:
+                            # Store parameters
+                            ec_ax._ion_params = ion_params
+                            ec_ax._ec_y_mode = 'ions'
+                            
+                            # Compute and apply ions formatter
+                            import numpy as np
+                            from matplotlib.ticker import FuncFormatter, MaxNLocator
+                            
+                            time_h = getattr(ec_ax, '_ec_time_h', None)
+                            current_mA = getattr(ec_ax, '_ec_current_mA', None)
+                            voltage_v = getattr(ec_ax, '_ec_voltage_v', None)
+                            
+                            if time_h is not None and current_mA is not None:
+                                t = np.asarray(time_h, float)
+                                i_mA = np.asarray(current_mA, float)
+                                v = np.asarray(voltage_v, float)
+                                
+                                # Cumulative trapezoidal integration for capacity (mAh)
+                                dt = np.diff(t)
+                                cap_increments = np.empty_like(t)
+                                cap_increments[0] = 0.0
+                                if t.size > 1:
+                                    cap_increments[1:] = 0.5 * (i_mA[:-1] + i_mA[1:]) * dt
+                                cap_mAh = np.cumsum(cap_increments)
+                                
+                                # Convert to specific capacity
+                                mass_g = float(ion_params.get('mass_mg', 0.0)) / 1000.0
+                                with np.errstate(divide='ignore', invalid='ignore'):
+                                    cap_mAh_g = np.where(mass_g > 0, cap_mAh / mass_g, np.nan)
+                                    ions_delta = np.where(
+                                        ion_params.get('cap_per_ion_mAh_g', 0.0) > 0,
+                                        cap_mAh_g / float(ion_params['cap_per_ion_mAh_g']),
+                                        np.nan
+                                    )
+                                
+                                ions_abs = float(ion_params.get('start_ions', 0.0)) + ions_delta
+                                ec_ax._ions_abs = ions_abs
+                                
+                                # Install formatter
+                                y0, y1 = ec_ax.get_ylim()
+                                ions_y0 = float(np.interp(y0, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                                ions_y1 = float(np.interp(y1, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                                rng = abs(ions_y1 - ions_y0)
+                                
+                                def _nice_step(r, approx=6):
+                                    if not np.isfinite(r) or r <= 0:
+                                        return 1.0
+                                    raw = r / max(1, approx)
+                                    exp = np.floor(np.log10(raw))
+                                    base = raw / (10**exp)
+                                    if base < 1.5:
+                                        step = 1.0
+                                    elif base < 3.5:
+                                        step = 2.0
+                                    elif base < 7.5:
+                                        step = 5.0
+                                    else:
+                                        step = 10.0
+                                    return step * (10**exp)
+                                
+                                step = _nice_step(rng)
+                                
+                                def _fmt(y, pos):
+                                    try:
+                                        val = float(np.interp(y, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                                        if step > 0:
+                                            val = round(val / step) * step
+                                        s = ("%f" % val).rstrip('0').rstrip('.')
+                                        return s
+                                    except Exception:
+                                        return ""
+                                
+                                ec_ax.yaxis.set_major_formatter(FuncFormatter(_fmt))
+                                ec_ax.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1,2,5], min_n_ticks=4))
+                                
+                                # Update label if not custom
+                                if not getattr(ec_ax, '_custom_labels', {}).get('y_ions'):
+                                    ec_ax.set_ylabel('Number of ions')
+                                
+                                print("Applied ions mode")
+                    except Exception as e:
+                        print(f"Warning: Could not apply ions mode: {e}")
                 
                 # Final redraw
                 try:
@@ -3005,7 +2984,52 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     parts = line.split()
                     if len(parts) == 2:
                         W = max(1.0, float(parts[0])); H = max(1.0, float(parts[1]))
+                        
+                        # Capture current panel dimensions in inches before resize
+                        old_w, old_h = cur_w, cur_h
+                        cb_pos = cbar.ax.get_position()
+                        ax_pos = ax.get_position()
+                        ec_pos = ec_ax.get_position() if ec_ax else None
+                        
+                        cb_w_in = cb_pos.width * old_w
+                        cb_h_in = cb_pos.height * old_h
+                        cb_gap_in = (ax_pos.x0 - (cb_pos.x0 + cb_pos.width)) * old_w
+                        ax_w_in = ax_pos.width * old_w
+                        ax_h_in = ax_pos.height * old_h
+                        if ec_ax:
+                            ec_gap_in = (ec_pos.x0 - (ax_pos.x0 + ax_pos.width)) * old_w
+                            ec_w_in = ec_pos.width * old_w
+                        
+                        # Resize figure
                         fig.set_size_inches(W, H, forward=True)
+                        
+                        # Recalculate fractional positions to maintain inch-based dimensions
+                        total_w_in = cb_w_in + cb_gap_in + ax_w_in
+                        if ec_ax:
+                            total_w_in += ec_gap_in + ec_w_in
+                        
+                        # Center the group horizontally
+                        group_left = max(0.0, (W - total_w_in) / (2.0 * W))
+                        y0 = max(0.0, (H - ax_h_in) / (2.0 * H))
+                        
+                        # Set new fractional positions
+                        cb_x0 = group_left
+                        cb_wf = cb_w_in / W
+                        cb_hf = ax_h_in / H
+                        cbar.ax.set_position([cb_x0, y0, cb_wf, cb_hf])
+                        
+                        ax_x0 = cb_x0 + cb_wf + (cb_gap_in / W)
+                        ax_wf = ax_w_in / W
+                        ax_hf = ax_h_in / H
+                        ax.set_position([ax_x0, y0, ax_wf, ax_hf])
+                        
+                        if ec_ax:
+                            ec_x0 = ax_x0 + ax_wf + (ec_gap_in / W)
+                            ec_wf = ec_w_in / W
+                            ec_hf = ax_h_in / H
+                            ec_ax.set_position([ec_x0, y0, ec_wf, ec_hf])
+                        
+                        fig.canvas.draw_idle()
                 except Exception as e:
                     print(f"Canvas resize failed: {e}")
             print_menu()

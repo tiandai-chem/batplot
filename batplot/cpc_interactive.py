@@ -1849,7 +1849,11 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     }
                     setattr(fig, '_cpc_wasd_state', wasd)
 
-                def _apply_wasd():
+                def _apply_wasd(changed_sides=None):
+                    # If no changed_sides specified, reposition all sides (for load style, etc.)
+                    if changed_sides is None:
+                        changed_sides = {'bottom', 'top', 'left', 'right'}
+                    
                     # Apply spines
                     # Note: top and bottom spines are shared between ax and ax2
                     try:
@@ -1937,45 +1941,47 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                             ax._top_xlabel_text.set_visible(True)
                             
                             # Dynamic positioning based on top tick labels visibility
-                            try:
-                                # Get renderer for measurements
-                                renderer = fig.canvas.get_renderer()
-                                
-                                # Base padding
-                                labelpad = ax.xaxis.labelpad if hasattr(ax.xaxis, 'labelpad') else 4.0
-                                fig_h = fig.get_size_inches()[1]
-                                ax_bbox = ax.get_position()
-                                ax_h_inches = ax_bbox.height * fig_h
-                                base_pad_axes = (labelpad / 72.0) / ax_h_inches if ax_h_inches > 0 else 0.02
-                                
-                                # If top tick labels are visible, measure their height and add spacing
-                                extra_offset = 0.0
-                                if bool(wasd['top']['labels']) and renderer is not None:
-                                    try:
-                                        max_h_px = 0.0
-                                        for t in ax.xaxis.get_major_ticks():
-                                            lab = getattr(t, 'label2', None)  # Top labels are label2
-                                            if lab is not None and lab.get_visible():
-                                                bb = lab.get_window_extent(renderer=renderer)
-                                                if bb is not None:
-                                                    max_h_px = max(max_h_px, float(bb.height))
-                                        # Convert pixels to axes coordinates
-                                        if max_h_px > 0 and ax_h_inches > 0:
-                                            dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
-                                            max_h_inches = max_h_px / dpi
-                                            extra_offset = max_h_inches / ax_h_inches
-                                    except Exception:
-                                        # Fallback to fixed offset if labels are on
-                                        extra_offset = 0.05
-                                
-                                total_offset = 1.0 + base_pad_axes + extra_offset
-                                ax._top_xlabel_text.set_position((0.5, total_offset))
-                            except Exception:
-                                # Fallback positioning
-                                if bool(wasd['top']['labels']):
-                                    ax._top_xlabel_text.set_position((0.5, 1.07))
-                                else:
-                                    ax._top_xlabel_text.set_position((0.5, 1.02))
+                            # Only reposition top if it's in changed_sides
+                            if 'top' in changed_sides:
+                                try:
+                                    # Get renderer for measurements
+                                    renderer = fig.canvas.get_renderer()
+                                    
+                                    # Base padding
+                                    labelpad = ax.xaxis.labelpad if hasattr(ax.xaxis, 'labelpad') else 4.0
+                                    fig_h = fig.get_size_inches()[1]
+                                    ax_bbox = ax.get_position()
+                                    ax_h_inches = ax_bbox.height * fig_h
+                                    base_pad_axes = (labelpad / 72.0) / ax_h_inches if ax_h_inches > 0 else 0.02
+                                    
+                                    # If top tick labels are visible, measure their height and add spacing
+                                    extra_offset = 0.0
+                                    if bool(wasd['top']['labels']) and renderer is not None:
+                                        try:
+                                            max_h_px = 0.0
+                                            for t in ax.xaxis.get_major_ticks():
+                                                lab = getattr(t, 'label2', None)  # Top labels are label2
+                                                if lab is not None and lab.get_visible():
+                                                    bb = lab.get_window_extent(renderer=renderer)
+                                                    if bb is not None:
+                                                        max_h_px = max(max_h_px, float(bb.height))
+                                            # Convert pixels to axes coordinates
+                                            if max_h_px > 0 and ax_h_inches > 0:
+                                                dpi = float(fig.dpi) if hasattr(fig, 'dpi') else 100.0
+                                                max_h_inches = max_h_px / dpi
+                                                extra_offset = max_h_inches / ax_h_inches
+                                        except Exception:
+                                            # Fallback to fixed offset if labels are on
+                                            extra_offset = 0.05
+                                    
+                                    total_offset = 1.0 + base_pad_axes + extra_offset
+                                    ax._top_xlabel_text.set_position((0.5, total_offset))
+                                except Exception:
+                                    # Fallback positioning
+                                    if bool(wasd['top']['labels']):
+                                        ax._top_xlabel_text.set_position((0.5, 1.07))
+                                    else:
+                                        ax._top_xlabel_text.set_position((0.5, 1.02))
                         else:
                             # Hide top label
                             if hasattr(ax, '_top_xlabel_text') and ax._top_xlabel_text is not None:
@@ -2010,10 +2016,13 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                             ax2.set_ylabel("")
                     except Exception:
                         pass
-                    try:
-                        fig.canvas.draw_idle()
-                    except Exception:
-                        pass
+                    
+                    # Only reposition sides that were actually changed
+                    # This prevents unnecessary title movement when toggling unrelated elements
+                    if 'bottom' in changed_sides:
+                        _ui_position_bottom_xlabel(ax, fig, tick_state)
+                    if 'left' in changed_sides:
+                        _ui_position_left_ylabel(ax, fig, tick_state)
 
                 def _print_wasd():
                     def b(v):
@@ -2086,6 +2095,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         _print_wasd(); continue
                     parts = cmd.split()
                     changed = False
+                    changed_sides = set()  # Track which sides were affected
                     for p in parts:
                         if len(p) != 2:
                             print(f"Unknown code: {p}"); continue
@@ -2096,6 +2106,10 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         key = { '1':'spine', '2':'ticks', '3':'minor', '4':'labels', '5':'title' }[n]
                         wasd[side][key] = not bool(wasd[side][key])
                         changed = True
+                        # Track which side was changed to only reposition affected sides
+                        # Labels and titles affect positioning, but spine/tick toggles don't necessarily
+                        if key in ('labels', 'title'):
+                            changed_sides.add(side)
                         # Keep tick_state in sync with new separate keys + legacy combined flags
                         if side == 'top' and key == 'ticks':
                             tick_state['t_ticks'] = bool(wasd['top']['ticks'])
@@ -2131,15 +2145,12 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                             tick_state['mry'] = bool(wasd['right']['minor'])
                     if changed:
                         push_state("wasd-toggle")
-                        _apply_wasd()
-                        # Draw canvas to ensure tick labels are rendered before positioning top/right labels
+                        _apply_wasd(changed_sides if changed_sides else None)
+                        # Single draw at the end after all positioning is complete
                         try:
                             fig.canvas.draw()
                         except Exception:
-                            try:
-                                fig.canvas.draw_idle()
-                            except Exception:
-                                pass
+                            fig.canvas.draw_idle()
             except Exception as e:
                 print(f"Error in WASD tick menu: {e}")
             _print_menu(); continue
