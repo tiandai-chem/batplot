@@ -1543,9 +1543,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         # Disable a12345 for EC panel (no left spine in dual-pane mode)
                         if target is ec_ax and side == 'left':
                             print("Left spine 'a' not available for EC panel (use operando panel for left side)"); continue
-                        # Disable d12345 for operando panel (no right spine in dual-pane mode)
-                        if target is ax and side == 'right':
-                            print("Right spine 'd' not available for operando panel (use EC panel for right side)"); continue
+                        # Disable d12345 for operando panel ONLY in dual-pane mode (when EC panel exists)
+                        # In operando-only mode (no EC panel), d12345 should work for right spine
+                        if target is ax and side == 'right' and ec_ax is not None:
+                            print("Right spine 'd' not available for operando panel (use EC panel for right side)")
+                            continue
                         key = {'1':'spine','2':'ticks','3':'minor','4':'labels','5':'title'}[p[1]]
                         wasd[side][key] = not bool(wasd[side][key])
                         changed = True
