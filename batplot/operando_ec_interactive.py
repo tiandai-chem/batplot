@@ -1965,12 +1965,21 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 fam = plt.rcParams.get('font.sans-serif', [''])[0]
                 fsize = plt.rcParams.get('font.size', None)
                 cmap_name = getattr(im.get_cmap(), 'name', None)
-                print("\n--- Operando+EC Style ---")
-                print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), n(toggle colorbar/ec), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
-                print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
-                print("Commands (EC): et(time range), ey(Y-axis type), er(rename)")
-                print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
-                print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\", EC width (ew)={ec_w_in:.3f}\"")
+                
+                # Print header based on mode
+                if ec_ax is not None:
+                    print("\n--- Operando+EC Style ---")
+                    print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), n(toggle colorbar/ec), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
+                    print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
+                    print("Commands (EC): et(time range), ey(Y-axis type), er(rename)")
+                    print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
+                    print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\", EC width (ew)={ec_w_in:.3f}\"")
+                else:
+                    print("\n--- Operando-Only Style ---")
+                    print("Commands (Styles): oc(colormap), ow(op width), n(toggle colorbar), t(toggle axes), l(line widths), h(height), f(fonts), g(canvas), r(reverse)")
+                    print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
+                    print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
+                    print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\"")
                 
                 # Visibility state
                 cb_vis = bool(cbar.ax.get_visible())
@@ -1982,10 +1991,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 
                 # Check if Y-axes are reversed (ylim[0] > ylim[1])
                 op_ylim = ax.get_ylim()
-                ec_ylim = ec_ax.get_ylim()
                 op_reversed = bool(op_ylim[0] > op_ylim[1])
-                ec_reversed = bool(ec_ylim[0] > ec_ylim[1])
-                print(f"Reverse (r): operando={'YES' if op_reversed else 'no'}, EC={'YES' if ec_reversed else 'no'}")
+                if ec_ax is not None:
+                    ec_ylim = ec_ax.get_ylim()
+                    ec_reversed = bool(ec_ylim[0] > ec_ylim[1])
+                    print(f"Reverse (r): operando={'YES' if op_reversed else 'no'}, EC={'YES' if ec_reversed else 'no'}")
+                else:
+                    print(f"Reverse (r): operando={'YES' if op_reversed else 'no'}")
                 
                 print(f"Font (f): family='{fam}', size={fsize}")
                 print(f"Operando colormap (oc): {cmap_name}")
@@ -1997,16 +2009,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 except Exception:
                     print("Operando intensity range (oz): N/A")
                 
-                # Display EC Y-axis mode (ey command)
-                ec_y_mode = getattr(ec_ax, '_ec_y_mode', 'time')
-                print(f"EC Y-axis mode (ey): {ec_y_mode}")
-                if ec_y_mode == 'ions':
-                    ion_params = getattr(ec_ax, '_ion_params', {})
-                    if ion_params:
-                        mass_mg = ion_params.get('mass_mg', 'N/A')
-                        cap_per_ion = ion_params.get('cap_per_ion_mAh_g', 'N/A')
-                        start_ions = ion_params.get('start_ions', 'N/A')
-                        print(f"  Ion params: mass={mass_mg} mg, cap/ion={cap_per_ion} mAh/g, start={start_ions}")
+                # Display EC Y-axis mode (ey command) - only if EC panel exists
+                if ec_ax is not None:
+                    ec_y_mode = getattr(ec_ax, '_ec_y_mode', 'time')
+                    print(f"EC Y-axis mode (ey): {ec_y_mode}")
+                    if ec_y_mode == 'ions':
+                        ion_params = getattr(ec_ax, '_ion_params', {})
+                        if ion_params:
+                            mass_mg = ion_params.get('mass_mg', 'N/A')
+                            cap_per_ion = ion_params.get('cap_per_ion_mAh_g', 'N/A')
+                            start_ions = ion_params.get('start_ions', 'N/A')
+                            print(f"  Ion params: mass={mass_mg} mg, cap/ion={cap_per_ion} mAh/g, start={start_ions}")
                 
                 # Display operando pane tick visibility
                 def _onoff(v): return 'ON ' if bool(v) else 'off'
