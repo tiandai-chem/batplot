@@ -1092,10 +1092,11 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     print("Color menu:")
                     print("  m : manual color mapping  (e.g., 1:red 2:#00B006)")
                     print("  p : apply colormap palette to a range (e.g., 1-3 viridis)")
+                    print("  s : spine colors (e.g., w:red a:#4561F7 for top & left)")
                     if has_cif and (_bp is not None and getattr(_bp, 'cif_tick_series', None)):
                         print("  t : change CIF tick set color (e.g., 1:red 2:#888888)")
                     print("  q : return to main menu")
-                    sub = input("Choose (m/p/t/q): ").strip().lower()
+                    sub = input("Choose (m/p/s/t/q): ").strip().lower()
                     if sub == 'q':
                         break
                     if sub == '':
@@ -1124,6 +1125,47 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 except ValueError:
                                     print(f"Bad index: {idx_str}")
                         fig.canvas.draw()
+                    elif sub == 's':
+                        # Spine colors (w=top, a=left, s=bottom, d=right)
+                        print("Set spine colors (with matching tick and label colors):")
+                        print("  w : top spine    | a : left spine")
+                        print("  s : bottom spine | d : right spine")
+                        print("Example: w:red a:#4561F7 s:blue d:green")
+                        line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
+                        if not line or line.lower() == 'q':
+                            print("Canceled.")
+                        else:
+                            push_state("color-spine")
+                            # Map wasd to spine names
+                            key_to_spine = {'w': 'top', 'a': 'left', 's': 'bottom', 'd': 'right'}
+                            tokens = line.split()
+                            for token in tokens:
+                                if ':' not in token:
+                                    print(f"Skip malformed token: {token}")
+                                    continue
+                                key_part, color = token.split(':', 1)
+                                key_part = key_part.lower()
+                                if key_part not in key_to_spine:
+                                    print(f"Unknown key: {key_part} (use w/a/s/d)")
+                                    continue
+                                spine_name = key_to_spine[key_part]
+                                if spine_name not in ax.spines:
+                                    print(f"Spine '{spine_name}' not found.")
+                                    continue
+                                try:
+                                    # Set spine color
+                                    ax.spines[spine_name].set_edgecolor(color)
+                                    # Set tick colors and axis label color for this axis
+                                    if spine_name in ('top', 'bottom'):
+                                        ax.tick_params(axis='x', which='both', colors=color)
+                                        ax.xaxis.label.set_color(color)
+                                    else:  # left or right
+                                        ax.tick_params(axis='y', which='both', colors=color)
+                                        ax.yaxis.label.set_color(color)
+                                    print(f"Set {spine_name} spine to {color}")
+                                except Exception as e:
+                                    print(f"Error setting {spine_name} color: {e}")
+                            fig.canvas.draw()
                     elif sub == 't' and has_cif and (_bp is not None and getattr(_bp, 'cif_tick_series', None)):
                         cts = getattr(_bp, 'cif_tick_series', [])
                         print("Current CIF tick sets:")

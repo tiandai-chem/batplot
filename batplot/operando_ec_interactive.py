@@ -154,6 +154,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             "ow: op width",
             "el: ec curve",
             "ew: ec width",
+            " k: spine colors",
             " t: toggle axes",
             " l: line",
             " h: height",
@@ -1627,6 +1628,54 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
                 except Exception as e:
                     print(f"Invalid EC width: {e}")
+            print_menu()
+        elif cmd == 'k':
+            # Spine colors (w=top, a=left, s=bottom, d=right)
+            try:
+                print("Set spine colors (with matching tick and label colors):")
+                print("  w : top spine    | a : left spine")
+                print("  s : bottom spine | d : right spine")
+                print("Example: w:red a:#4561F7 s:blue d:green")
+                line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
+                if line and line.lower() != 'q':
+                    _snapshot("color-spine")
+                    # Map wasd to spine names
+                    key_to_spine = {'w': 'top', 'a': 'left', 's': 'bottom', 'd': 'right'}
+                    tokens = line.split()
+                    for token in tokens:
+                        if ':' not in token:
+                            print(f"Skip malformed token: {token}")
+                            continue
+                        key_part, color = token.split(':', 1)
+                        key_part = key_part.lower()
+                        if key_part not in key_to_spine:
+                            print(f"Unknown key: {key_part} (use w/a/s/d)")
+                            continue
+                        spine_name = key_to_spine[key_part]
+                        # Set for both axes
+                        for curr_ax in [ax, ec_ax]:
+                            if curr_ax is None:
+                                continue
+                            if spine_name not in curr_ax.spines:
+                                continue
+                            try:
+                                # Set spine color
+                                curr_ax.spines[spine_name].set_edgecolor(color)
+                                # Set tick colors and axis label color for this axis
+                                if spine_name in ('top', 'bottom'):
+                                    curr_ax.tick_params(axis='x', which='both', colors=color)
+                                    curr_ax.xaxis.label.set_color(color)
+                                else:  # left or right
+                                    curr_ax.tick_params(axis='y', which='both', colors=color)
+                                    curr_ax.yaxis.label.set_color(color)
+                            except Exception as e:
+                                print(f"Error setting {spine_name} color on axis: {e}")
+                        print(f"Set {spine_name} spine to {color}")
+                    fig.canvas.draw()
+                else:
+                    print("Canceled.")
+            except Exception as e:
+                print(f"Error in spine color menu: {e}")
             print_menu()
         elif cmd == 'oc':
             # Change operando colormap (perceptually uniform suggestions)

@@ -119,6 +119,22 @@ def print_style_info(
         print(
             f"  {name:<5} lw={spn.get_linewidth()} color={spn.get_edgecolor()} visible={spn.get_visible()}"
         )
+    
+    # Tick colors
+    try:
+        x_color = ax.xaxis.get_tick_params()['color'] if ax.xaxis.get_tick_params() else 'black'
+        y_color = ax.yaxis.get_tick_params()['color'] if ax.yaxis.get_tick_params() else 'black'
+        print(f"Tick colors: X={x_color} Y={y_color}")
+    except Exception:
+        pass
+    
+    # Axis label colors
+    try:
+        x_label_color = ax.xaxis.label.get_color()
+        y_label_color = ax.yaxis.label.get_color()
+        print(f"Axis label colors: X={x_label_color} Y={y_label_color}")
+    except Exception:
+        pass
 
     # Omit CIF/HKL details from compact style print
 
@@ -247,6 +263,14 @@ def export_style_config(
                     "visible": spine_vis.get(name, True),
                 }
                 for name, spn in ax.spines.items()
+            },
+            "tick_colors": {
+                "x": ax.xaxis.get_tick_params()['color'] if ax.xaxis.get_tick_params() else 'black',
+                "y": ax.yaxis.get_tick_params()['color'] if ax.yaxis.get_tick_params() else 'black',
+            },
+            "axis_label_colors": {
+                "x": ax.xaxis.label.get_color(),
+                "y": ax.yaxis.label.get_color(),
             },
             "lines": [
                 {
@@ -606,6 +630,28 @@ def apply_style_config(
                         pass
                 if "visible" in sp_dict:
                     ax.spines[name].set_visible(sp_dict["visible"])
+
+    # Tick colors
+        tick_colors = cfg.get("tick_colors", {})
+        if tick_colors:
+            try:
+                if "x" in tick_colors:
+                    ax.tick_params(axis='x', which='both', colors=tick_colors["x"])
+                if "y" in tick_colors:
+                    ax.tick_params(axis='y', which='both', colors=tick_colors["y"])
+            except Exception as e:
+                print(f"[DEBUG] Exception setting tick colors: {e}")
+
+    # Axis label colors
+        axis_label_colors = cfg.get("axis_label_colors", {})
+        if axis_label_colors:
+            try:
+                if "x" in axis_label_colors:
+                    ax.xaxis.label.set_color(axis_label_colors["x"])
+                if "y" in axis_label_colors:
+                    ax.yaxis.label.set_color(axis_label_colors["y"])
+            except Exception as e:
+                print(f"[DEBUG] Exception setting axis label colors: {e}")
 
     # Lines
         for entry in cfg.get("lines", []):

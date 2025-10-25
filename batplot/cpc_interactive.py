@@ -59,6 +59,7 @@ def _print_menu():
         " l: line",
         " m: marker sizes",
         " c: colors",
+        " k: spine colors",
         "ry: show/hide efficiency",
         " t: toggle axes",
         " h: legend",
@@ -1129,6 +1130,57 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         print("Unknown option.")
             except Exception as e:
                 print(f"Error in colors menu: {e}")
+            _print_menu()
+            if is_multi_file:
+                _print_file_list(file_data, current_file_idx)
+            continue
+        elif key == 'k':
+            # Spine colors (w=top, a=left, s=bottom, d=right)
+            try:
+                print("Set spine colors (with matching tick and label colors):")
+                print("  w : top spine    | a : left spine")
+                print("  s : bottom spine | d : right spine")
+                print("Example: w:red a:#4561F7 s:blue d:green")
+                line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
+                if line and line.lower() != 'q':
+                    push_state("color-spine")
+                    # Map wasd to spine names
+                    key_to_spine = {'w': 'top', 'a': 'left', 's': 'bottom', 'd': 'right'}
+                    tokens = line.split()
+                    for token in tokens:
+                        if ':' not in token:
+                            print(f"Skip malformed token: {token}")
+                            continue
+                        key_part, color = token.split(':', 1)
+                        key_part = key_part.lower()
+                        if key_part not in key_to_spine:
+                            print(f"Unknown key: {key_part} (use w/a/s/d)")
+                            continue
+                        spine_name = key_to_spine[key_part]
+                        # Set for both axes
+                        for curr_ax in [ax, ax2]:
+                            if curr_ax is None:
+                                continue
+                            if spine_name not in curr_ax.spines:
+                                continue
+                            try:
+                                # Set spine color
+                                curr_ax.spines[spine_name].set_edgecolor(color)
+                                # Set tick colors and axis label color for this axis
+                                if spine_name in ('top', 'bottom'):
+                                    curr_ax.tick_params(axis='x', which='both', colors=color)
+                                    curr_ax.xaxis.label.set_color(color)
+                                else:  # left or right
+                                    curr_ax.tick_params(axis='y', which='both', colors=color)
+                                    curr_ax.yaxis.label.set_color(color)
+                            except Exception as e:
+                                print(f"Error setting {spine_name} color: {e}")
+                        print(f"Set {spine_name} spine to {color}")
+                    fig.canvas.draw()
+                else:
+                    print("Canceled.")
+            except Exception as e:
+                print(f"Error in spine color menu: {e}")
             _print_menu()
             if is_multi_file:
                 _print_file_list(file_data, current_file_idx)
