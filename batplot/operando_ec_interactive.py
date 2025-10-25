@@ -1948,14 +1948,21 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             #   g:  canvas size
             #   r:  reverse Y-axis orientation
             try:
-                print("Print & Export: ps=style only (.bps), psg=style+geometry (.bpsg), q=cancel")
-                choice = input("p> ").strip().lower()
-                if not choice or choice == 'q':
-                    print_menu()
-                    continue
-                
-                if choice not in ('ps', 'psg'):
-                    print(f"Unknown option: {choice}")
+                # Export functionality only available in dual-pane mode
+                if ec_ax is not None:
+                    print("Print & Export: ps=style only (.bps), psg=style+geometry (.bpsg), q=cancel")
+                    choice = input("p> ").strip().lower()
+                    if not choice or choice == 'q':
+                        print_menu()
+                        continue
+                    
+                    if choice not in ('ps', 'psg'):
+                        print(f"Unknown option: {choice}")
+                        print_menu()
+                        continue
+                else:
+                    # Operando-only mode: no export, just return to menu
+                    print("\nNote: Style export (.bps/.bpsg) is only available in dual-pane mode (with EC file).")
                     print_menu()
                     continue
                 
