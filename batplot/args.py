@@ -12,7 +12,7 @@ def _print_general_help() -> None:
         "What it does:\n"
         "  • XY: XRD/PDF/XAS/... curves\n"
         "  • EC: GC/CPC/dQdV/CV (from .csv or .mpt)\n"
-        "  • Operando: contour maps from a folder of XY and .mpt files (use --raw for raw intensity)\n"
+        "  • Operando: contour maps from a folder of XY and .mpt files\n"
         "  • Batch: export SVG plots for all files in a directory\n\n"
         "  • Interactive mode: --interactive flag opens a menu for styling, ranges, fonts, export, sessions\n\n"
     "How to run (basics):\n"
@@ -34,8 +34,7 @@ def _print_general_help() -> None:
     "    batplot --cv FILE.txt                  # EC CV (cyclic voltammetry) from .txt\n"
     "    batplot --cv --all                     # Batch: all .mpt/.txt in directory (CV mode)\n\n"
     "  [Operando]\n"
-    "    batplot --operando [FOLDER]            # Operando contour from folder (normalized by default)\n"
-    "    batplot --operando --raw               # Operando contour with raw intensity (no normalization)\n\n"
+    "    batplot --operando [FOLDER]            # Operando contour from folder\n\n"
         "Features:\n"
         "  • Quick plotting with sensible defaults, no config files needed\n"
         "  • Supports many common file formats (see -h xy/ec/op)\n"
@@ -73,12 +72,12 @@ def _print_xy_help() -> None:
         "  batplot --all                          # Export all XY files to SVG\n"
         "  batplot --all --xaxis 2theta           # Batch mode with custom axis type\n"
         "  batplot --all --xrange 10 80           # Batch mode with X-axis range\n"
-        "  batplot --all --wl 1.5406 --raw        # Batch mode with wavelength and raw intensity\n\n"
+        "  batplot --all --wl 1.5406 --norm       # Batch mode with wavelength and normalization\n\n"
         "Tips and options:\n"
         "[XY plot]\n"
     "  --interactive             : open interactive menu for styling, ranges, fonts, export, sessions\n"
     "  --delta/-d <float>        : spacing between curves, e.g. --delta 0.1\n"
-    "  --raw                     : plot raw intensity (normalized by default)\n"
+    "  --norm                    : normalize intensity (0-1). Auto-enabled for --stack mode\n"
     "  --xrange/-r <min> <max>   : set x-axis range, e.g. --xrange 0 10\n"
     "  --out/-o <filename>       : save figure to file, e.g. --out file.svg\n"
     "  --xaxis <type>            : set x-axis type (Q, 2theta, r, k, energy, rft, or user defined), e.g. --xaxis 2theta\n"
@@ -130,10 +129,9 @@ def _print_op_help() -> None:
         "Operando contour plots\n\n"
         "Example usage:\n"
         "  batplot --operando --interactive --wl 0.25995  # Interactive mode with Q conversion\n"
-        "  batplot --operando --raw --interactive         # Raw intensity (no normalization)\n"
         "  batplot --operando --xaxis 2theta              # Using 2theta axis\n\n"
         "  • Folder should contain XY files (.xy/.xye/.qye/.dat).\n"
-        "  • By default, data is normalized (0-1). Use --raw to plot raw intensity.\n"
+        "  • Intensity scale is auto-adjusted between min/max values.\n"
         "  • If no .qye present, provide --xaxis 2theta or set --wl for Q conversion.\n"
         "  • If a BioLogic .mpt is present, an EC side panel will be added automatically.\n\n"
         "Interactive (--interactive): resize axes/canvas, change colormap, set intensity range (oi),\n"
@@ -158,7 +156,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--convert", "-c", nargs="+", help=argparse.SUPPRESS)
     parser.add_argument("--wl", type=float, help=argparse.SUPPRESS)
     parser.add_argument("--fullprof", nargs="+", type=float, help=argparse.SUPPRESS)
-    parser.add_argument("--raw", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--norm", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--interactive", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--savefig", type=str, help=argparse.SUPPRESS)
     parser.add_argument("--stack", action="store_true", help=argparse.SUPPRESS)

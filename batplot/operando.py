@@ -1,15 +1,14 @@
 """Operando (time/sequence) contour plotting utilities.
 
 This module provides a single helper `plot_operando_folder` that scans a folder
-for normalized diffraction data files (.xy, .xye, .qye, .dat) and renders them as
+for diffraction data files (.xy, .xye, .qye, .dat) and renders them as
 an intensity contour (imshow / pcolormesh) stack vs scan index.
 
 Rules:
 - X axis: 2θ by default; if --xaxis Q provided, or files are .qye, or a global
   wavelength is specified and conversion is desired, Q will be used.
-- Input files are assumed already normalized (0-1) unless --raw passed in the
-  parent CLI; for simplicity we re-normalize each curve individually unless
-  raw mode chosen.
+- No automatic normalization is applied; Z-scale (colorbar) is auto-adjusted
+  to span from min to max intensity across all data.
 - Sort files alphabetically for deterministic order.
 
 Returned figure/axes so caller can further tweak or save.
@@ -115,15 +114,7 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
                     print(f"Skip {f.name}: need wavelength (--wl) for Q conversion")
                     continue
                 x = _maybe_convert_to_Q(x, wl)
-        # Normalize unless raw
-        if not args.raw and y.size:
-            ymin = float(np.min(y))
-            ymax = float(np.max(y))
-            span = ymax - ymin
-            if span > 0:
-                y = (y - ymin)/span
-            else:
-                y = np.zeros_like(y)
+        # No normalization - keep raw intensity values
         x_arrays.append(x)
         y_arrays.append(y)
 
@@ -166,7 +157,7 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     cbar = fig.colorbar(im, ax=ax, location='left', pad=0.15)
     cbar.ax.yaxis.set_ticks_position('left')
     cbar.ax.yaxis.set_label_position('left')
-    cbar.set_label('Intensity (norm)' if not args.raw else 'Intensity')
+    cbar.set_label('Intensity')
     ax.set_ylabel('Scan index')
     if axis_mode == 'Q':
         # Use mathtext for reliable superscript minus; plain unicode '⁻' can fail with some fonts

@@ -201,7 +201,7 @@ def dump_session(
             'args_subset': {
                 'stack': bool(getattr(args, 'stack', False)),
                 'autoscale': bool(getattr(args, 'autoscale', False)),
-                'raw': bool(getattr(args, 'raw', False)),
+                'norm': bool(getattr(args, 'norm', False)),
             },
             'cif_tick_series': [tuple(t) for t in (cif_tick_series or [])],
             'cif_hkl_map': {k: [tuple(v) for v in val] for k, val in (cif_hkl_map or {}).items()},

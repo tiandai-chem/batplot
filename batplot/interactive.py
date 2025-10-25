@@ -1520,7 +1520,9 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     if x_sub.size == 0:
                         ax.lines[i].set_data([], [])
                         y_data_list[i] = np.array([]); orig_y[i] = np.array([]); continue
-                    if not args.raw:
+                    # Auto-normalize for --stack mode, or explicit --norm flag
+                    should_normalize = args.stack or getattr(args, 'norm', False)
+                    if should_normalize:
                         if y_sub_raw.size:
                             y_min = float(y_sub_raw.min())
                             y_max = float(y_sub_raw.max())

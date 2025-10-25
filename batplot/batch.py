@@ -278,16 +278,16 @@ def batch_process(directory: str, args):
             else:
                 x_plot = x
 
-            # Normalize or raw
-            if args.raw:
-                y_plot = y.copy()
-            else:
+            # Normalize if --norm flag is set
+            if getattr(args, 'norm', False):
                 if y.size:
                     ymin = float(y.min()); ymax = float(y.max())
                     span = ymax - ymin
                     y_plot = (y - ymin)/span if span > 0 else np.zeros_like(y)
                 else:
                     y_plot = y
+            else:
+                y_plot = y.copy()
 
             # Plot and save
             fig_b, ax_b = plt.subplots(figsize=(6,4))
@@ -309,7 +309,7 @@ def batch_process(directory: str, args):
                 ax_b.set_xlabel("Radial distance (Å)")
             else:
                 ax_b.set_xlabel(r"$2\theta\ (\mathrm{deg})$")
-            ax_b.set_ylabel("Intensity" if args.raw else "Normalized intensity (a.u.)")
+            ax_b.set_ylabel("Normalized intensity (a.u.)" if getattr(args, 'norm', False) else "Intensity")
             ax_b.set_title(fname)
             fig_b.subplots_adjust(left=0.18, right=0.97, bottom=0.16, top=0.90)
             out_name = os.path.splitext(fname)[0] + ".svg"

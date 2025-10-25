@@ -1641,8 +1641,8 @@ def batplot_main() -> int:
             args_subset = sess.get('args_subset', {})
             if 'autoscale' in args_subset:
                 args.autoscale = bool(args_subset['autoscale'])
-            if 'raw' in args_subset:
-                args.raw = bool(args_subset['raw'])
+            if 'norm' in args_subset:
+                args.norm = bool(args_subset['norm'])
         except Exception:
             pass
         try:
@@ -1920,7 +1920,9 @@ def batplot_main() -> int:
             x_plot = x_full
 
         # ---- Normalize (display subset) ----
-        if not args.raw:
+        # Auto-normalize for --stack mode, or explicit --norm flag
+        should_normalize = args.stack or getattr(args, 'norm', False)
+        if should_normalize:
             # Min–max normalization to 0..1 within the currently displayed (cropped) segment
             if y_plot.size:
                 y_min = float(y_plot.min())
@@ -2300,10 +2302,12 @@ def batplot_main() -> int:
     else:
         x_label = "X"
     ax.set_xlabel(x_label, fontsize=16)
-    if args.raw:
-        ax.set_ylabel("Intensity", fontsize=16)
-    else:
+    # Y-axis label: normalized if --stack or --norm
+    should_normalize = args.stack or getattr(args, 'norm', False)
+    if should_normalize:
         ax.set_ylabel("Normalized intensity (a.u.)", fontsize=16)
+    else:
+        ax.set_ylabel("Intensity", fontsize=16)
 
     # Store originals for axis-title toggle restoration (t menu bn/ln)
     try:
