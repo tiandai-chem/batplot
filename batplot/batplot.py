@@ -1237,7 +1237,7 @@ def batplot_main() -> int:
                 except Exception:
                     pass
                 try:
-                    if operando_ec_interactive_menu is not None and ec_ax2 is not None:
+                    if operando_ec_interactive_menu is not None:
                         operando_ec_interactive_menu(fig2, ax2, im2, cbar2, ec_ax2)
                 except Exception as _ie:
                     print(f"Interactive menu failed: {_ie}")
