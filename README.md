@@ -42,8 +42,11 @@ batplot --all
 # Batch mode with options: custom axis and range
 batplot --all --xaxis 2theta --xrange 10 80
 
-# Batch mode: convert 2theta to Q and use raw intensity
-batplot --all --wl 1.5406 --raw
+# Normalize data (--stack mode auto-normalizes by default)
+batplot allfiles --norm
+
+# Batch mode: convert 2theta to Q
+batplot --all --wl 1.5406
 ```
 
 ### Electrochemistry
@@ -82,6 +85,10 @@ batplot --all geom.bpsg --cpc --mass 5.4    # Apply style+geometry to all CPC fi
 ```bash
 # Correlate in-situ XRD with electrochemistry
 # (Place both .xye and .mpt files in same directory)
+batplot --operando --interactive
+
+# Operando mode without electrochemistry data
+# (Only .xye files, no .mpt file)
 batplot --operando --interactive
 ```
 

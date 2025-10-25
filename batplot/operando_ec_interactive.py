@@ -175,6 +175,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 "ow: op width",
                 "el: ec curve",
                 "ew: ec width",
+                " n: toggle colorbar/ec",
                 " k: spine colors",
                 " t: toggle axes",
                 " l: line",
@@ -196,7 +197,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 
             ]
             col4 = [
-                "n: crosshair",
+                "c: crosshair",
                 "p: print(export) style/geom",
                 "i: import style/geom",
                 "e: export figure",
@@ -223,6 +224,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             col1 = [
                 "oc: op colormap",
                 "ow: op width",
+                " n: toggle colorbar",
                 " k: spine colors",
                 " t: toggle axes",
                 " l: line",
@@ -238,7 +240,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 "or: rename"
             ]
             col3 = [
-                "n: crosshair",
+                "c: crosshair",
                 "p: print(export) style/geom",
                 "i: import style/geom",
                 "e: export figure",
@@ -569,6 +571,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 }
             else:
                 ec_wasd = None
+            # Visibility states
+            cb_visible = bool(cbar.ax.get_visible())
+            ec_visible = bool(ec_ax.get_visible()) if ec_ax is not None else None
             state_history.append({
                 'note': note,
                 'fig_size': (fig_w, fig_h),
@@ -588,6 +593,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 'ec_wasd': dict(ec_wasd) if ec_wasd is not None else None,
                 'tick_lengths': getattr(fig, '_tick_lengths', None),
                 'tick_direction': getattr(fig, '_tick_direction', 'out'),
+                'cb_visible': cb_visible,
+                'ec_visible': ec_visible,
             })
             if len(state_history) > 40:
                 state_history.pop(0)
@@ -864,6 +871,19 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 fig._tick_direction = tick_dir
             except Exception:
                 pass
+            # Restore visibility states
+            try:
+                cb_vis = snap.get('cb_visible')
+                if cb_vis is not None:
+                    cbar.ax.set_visible(bool(cb_vis))
+            except Exception:
+                pass
+            try:
+                ec_vis = snap.get('ec_visible')
+                if ec_vis is not None and ec_ax is not None:
+                    ec_ax.set_visible(bool(ec_vis))
+            except Exception:
+                pass
             try:
                 fig.canvas.draw()
             except Exception:
@@ -1008,11 +1028,48 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             except Exception as e:
                 print(f"Export failed: {e}")
             print_menu(); continue
-        if cmd == 'n':
+        if cmd == 'c':
             try:
                 _toggle_crosshair()
             except Exception as e:
                 print(f"Error toggling crosshair: {e}")
+            print_menu(); continue
+        if cmd == 'n':
+            # Toggle colorbar and/or EC panel visibility
+            _snapshot("toggle-visibility")
+            try:
+                if ec_ax is not None:
+                    # Dual-panel mode: toggle both colorbar and EC
+                    print("Toggle: 1=colorbar, 2=EC panel, 3=both, q=cancel")
+                    choice = input("n> ").strip().lower()
+                    if choice == '1':
+                        # Toggle colorbar
+                        cb_vis = cbar.ax.get_visible()
+                        cbar.ax.set_visible(not cb_vis)
+                        print(f"Colorbar: {'hidden' if cb_vis else 'shown'}")
+                    elif choice == '2':
+                        # Toggle EC panel
+                        ec_vis = ec_ax.get_visible()
+                        ec_ax.set_visible(not ec_vis)
+                        print(f"EC panel: {'hidden' if ec_vis else 'shown'}")
+                    elif choice == '3':
+                        # Toggle both
+                        cb_vis = cbar.ax.get_visible()
+                        ec_vis = ec_ax.get_visible()
+                        new_vis = not (cb_vis and ec_vis)  # Show if either is hidden
+                        cbar.ax.set_visible(new_vis)
+                        ec_ax.set_visible(new_vis)
+                        print(f"Colorbar & EC panel: {'shown' if new_vis else 'hidden'}")
+                    elif choice != 'q':
+                        print("Invalid choice")
+                else:
+                    # Operando-only mode: toggle colorbar only
+                    cb_vis = cbar.ax.get_visible()
+                    cbar.ax.set_visible(not cb_vis)
+                    print(f"Colorbar: {'hidden' if cb_vis else 'shown'}")
+                fig.canvas.draw_idle()
+            except Exception as e:
+                print(f"Error toggling visibility: {e}")
             print_menu(); continue
         if cmd == 'b':
             _restore(); print_menu(); continue
@@ -1909,11 +1966,19 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 fsize = plt.rcParams.get('font.size', None)
                 cmap_name = getattr(im.get_cmap(), 'name', None)
                 print("\n--- Operando+EC Style ---")
-                print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
+                print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), n(toggle colorbar/ec), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
                 print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
                 print("Commands (EC): et(time range), ey(Y-axis type), er(rename)")
                 print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
                 print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\", EC width (ew)={ec_w_in:.3f}\"")
+                
+                # Visibility state
+                cb_vis = bool(cbar.ax.get_visible())
+                ec_vis = bool(ec_ax.get_visible()) if ec_ax is not None else None
+                if ec_ax is not None:
+                    print(f"Visibility (n): colorbar={'shown' if cb_vis else 'hidden'}, EC panel={'shown' if ec_vis else 'hidden'}")
+                else:
+                    print(f"Visibility (n): colorbar={'shown' if cb_vis else 'hidden'}")
                 
                 # Check if Y-axes are reversed (ylim[0] > ylim[1])
                 op_ylim = ax.get_ylim()
@@ -2168,14 +2233,18 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     ion_params = getattr(ec_ax, '_ion_params', None)
                     
                     # Build config based on choice
+                    # Get visibility states
+                    cb_visible = bool(cbar.ax.get_visible())
+                    ec_visible = bool(ec_ax.get_visible()) if ec_ax is not None else None
+                    
                     if choice == 'ps':
                         cfg = {
                             'kind': 'operando_ec_style',
                             'version': 2,
-                            'figure': {'canvas_size': [fig_w, fig_h]},
+                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
                             'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible},
                             'font': {'family': fam, 'size': fsize},
                         }
                         default_ext = '.bps'
@@ -2183,10 +2252,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cfg = {
                             'kind': 'operando_ec_style_geom',
                             'version': 2,
-                            'figure': {'canvas_size': [fig_w, fig_h]},
+                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
                             'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible},
                             'font': {'family': fam, 'size': fsize},
                             'axes_geometry': _get_geometry_snapshot(ax, ec_ax),
                         }
@@ -2659,6 +2728,23 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 print("Applied ions mode")
                     except Exception as e:
                         print(f"Warning: Could not apply ions mode: {e}")
+                
+                # Apply visibility states (n command)
+                if version >= 2:
+                    try:
+                        fig_cfg = cfg.get('figure', {})
+                        cb_visible = fig_cfg.get('cb_visible')
+                        if cb_visible is not None:
+                            cbar.ax.set_visible(bool(cb_visible))
+                    except Exception:
+                        pass
+                    try:
+                        ec_cfg = cfg.get('ec', {})
+                        ec_visible = ec_cfg.get('visible')
+                        if ec_visible is not None and ec_ax is not None:
+                            ec_ax.set_visible(bool(ec_visible))
+                    except Exception:
+                        pass
                 
                 # Final redraw
                 try:

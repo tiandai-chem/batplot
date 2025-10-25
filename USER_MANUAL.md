@@ -53,7 +53,7 @@ Batplot supports three main figure types:
 
 **All Files Together (`allfiles`)**: Plot all XY files in the current directory on the **same figure**. Perfect for comparing multiple patterns. Supports all options (--stack, --interactive, --xaxis, etc.).
 
-**Batch Mode (`--all`)**: Export each file as a **separate SVG**. Perfect for preparing publication figures. Supports options like --xaxis, --xrange, --wl, --raw.
+**Batch Mode (`--all`)**: Export each file as a **separate SVG**. Perfect for preparing publication figures. Supports options like --xaxis, --xrange, --wl, --norm.
 
 | Command | What it does | Interactive? | Output |
 |---------|--------------|--------------|--------|
@@ -91,14 +91,17 @@ batplot allfiles --stack --interactive
 batplot allfiles --xaxis 2theta --xrange 10 80 --interactive
 # Plot all files with custom axis, range, and interactive menu
 
+batplot allfiles --norm --interactive
+# Plot all files with normalized intensities
+
 batplot --all
 # Batch mode: save all supported files in the current folder as SVG images
 
 batplot --all --xaxis 2theta --xrange 10 80
 # Batch mode with custom X-axis type and range
 
-batplot --all --wl 1.5406 --raw
-# Batch mode: convert 2theta to Q with wavelength 1.5406 Å, use raw intensity
+batplot --all --wl 1.5406
+# Batch mode: convert 2theta to Q with wavelength 1.5406 Å
 ```
 
 ---
@@ -221,7 +224,8 @@ batplot --all geom.bpsg --cpc --mass 5.4
 
 ### Requirements
 
-- Place both operando files (`.xye`, `.qye`, `.xy`, `.dat`) and EC files (`.mpt`) in the same directory.
+- Place operando files (`.xye`, `.qye`, `.xy`, `.dat`) in the directory.
+- Optionally include EC file (`.mpt`) for dual-panel mode with electrochemistry.
 - Navigate to the folder before running Batplot.
 
 ### Example Usage
@@ -229,10 +233,15 @@ batplot --all geom.bpsg --cpc --mass 5.4
 ```bash
 batplot --operando --interactive
 # Launch operando mode with interactive editing
+# Shows dual-panel view if .mpt file is present, single panel otherwise
 
 batplot --operando --wl 0.25995 --interactive
 # Launch operando mode with interactive editing, converting x axis from 2theta to Q space
 ```
+
+### Operando-Only Mode
+
+If no `.mpt` file is present, operando mode displays only the contour plot. The interactive menu adapts to allow full control of all four spines (left, right, top, bottom) for the single panel.
 
 ---
 

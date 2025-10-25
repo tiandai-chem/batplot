@@ -34,7 +34,7 @@ def _print_general_help() -> None:
     "    batplot --cv FILE.txt                  # EC CV (cyclic voltammetry) from .txt\n"
     "    batplot --cv --all                     # Batch: all .mpt/.txt in directory (CV mode)\n\n"
     "  [Operando]\n"
-    "    batplot --operando [FOLDER]            # Operando contour from folder\n\n"
+    "    batplot --operando [FOLDER]            # Operando contour (with or without .mpt file)\n\n"
         "Features:\n"
         "  • Quick plotting with sensible defaults, no config files needed\n"
         "  • Supports many common file formats (see -h xy/ec/op)\n"
@@ -72,18 +72,18 @@ def _print_xy_help() -> None:
         "  batplot --all                          # Export all XY files to SVG\n"
         "  batplot --all --xaxis 2theta           # Batch mode with custom axis type\n"
         "  batplot --all --xrange 10 80           # Batch mode with X-axis range\n"
-        "  batplot --all --wl 1.5406 --norm       # Batch mode with wavelength and normalization\n\n"
+        "  batplot --all --wl 1.5406              # Batch mode with wavelength conversion\n\n"
         "Tips and options:\n"
         "[XY plot]\n"
     "  --interactive             : open interactive menu for styling, ranges, fonts, export, sessions\n"
     "  --delta/-d <float>        : spacing between curves, e.g. --delta 0.1\n"
-    "  --norm                    : normalize intensity (0-1). Auto-enabled for --stack mode\n"
+    "  --norm                    : normalize intensity to 0-1 range. Stack mode (--stack) auto-normalizes\n"
     "  --xrange/-r <min> <max>   : set x-axis range, e.g. --xrange 0 10\n"
     "  --out/-o <filename>       : save figure to file, e.g. --out file.svg\n"
     "  --xaxis <type>            : set x-axis type (Q, 2theta, r, k, energy, rft, or user defined), e.g. --xaxis 2theta\n"
     "  --wl <float>              : set wavelength for Q conversion for all files, e.g. --wl 1.5406\n"
     "  --fullprof <args>         : FullProf overlay options\n"
-    "  --stack                   : stack curves vertically\n"
+    "  --stack                   : stack curves vertically (auto-enables normalization)\n"
     )
     print(msg)
 
@@ -133,9 +133,11 @@ def _print_op_help() -> None:
         "  • Folder should contain XY files (.xy/.xye/.qye/.dat).\n"
         "  • Intensity scale is auto-adjusted between min/max values.\n"
         "  • If no .qye present, provide --xaxis 2theta or set --wl for Q conversion.\n"
-        "  • If a BioLogic .mpt is present, an EC side panel will be added automatically.\n\n"
-        "Interactive (--interactive): resize axes/canvas, change colormap, set intensity range (oi),\n"
-        "EC y-axis options (time ↔ ions), geometry tweaks, print/export/import style, save session.\n"
+        "  • If a .mpt file is present, an EC side panel is added for dual-panel mode.\n"
+        "  • Without a .mpt file, operando-only mode shows the contour plot alone.\n\n"
+        "Interactive (--interactive): resize axes/canvas, change colormap, set intensity range (oz),\n"
+        "EC y-axis options (time ↔ ions), geometry tweaks, toggle spines/ticks/labels,\n"
+        "print/export/import style, save session.\n"
     )
     print(msg)
 
