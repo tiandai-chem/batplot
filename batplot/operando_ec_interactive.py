@@ -175,8 +175,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 "ow: op width",
                 "el: ec curve",
                 "ew: ec width",
-                " n: toggle colorbar/ec",
-                " k: spine colors",
+                " v: toggle colorbar/ec",
                 " t: toggle axes",
                 " l: line",
                 " h: height",
@@ -197,7 +196,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 
             ]
             col4 = [
-                "c: crosshair",
+                "n: crosshair",
                 "p: print(export) style/geom",
                 "i: import style/geom",
                 "e: export figure",
@@ -224,8 +223,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             col1 = [
                 "oc: op colormap",
                 "ow: op width",
-                " n: toggle colorbar",
-                " k: spine colors",
+                " v: toggle colorbar",
                 " t: toggle axes",
                 " l: line",
                 " h: height",
@@ -240,7 +238,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 "or: rename"
             ]
             col3 = [
-                "c: crosshair",
+                "n: crosshair",
                 "p: print(export) style/geom",
                 "i: import style/geom",
                 "e: export figure",
@@ -1028,20 +1026,20 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             except Exception as e:
                 print(f"Export failed: {e}")
             print_menu(); continue
-        if cmd == 'c':
+        if cmd == 'n':
             try:
                 _toggle_crosshair()
             except Exception as e:
                 print(f"Error toggling crosshair: {e}")
             print_menu(); continue
-        if cmd == 'n':
+        if cmd == 'v':
             # Toggle colorbar and/or EC panel visibility
             _snapshot("toggle-visibility")
             try:
                 if ec_ax is not None:
                     # Dual-panel mode: toggle both colorbar and EC
                     print("Toggle: 1=colorbar, 2=EC panel, 3=both, q=cancel")
-                    choice = input("n> ").strip().lower()
+                    choice = input("v> ").strip().lower()
                     if choice == '1':
                         # Toggle colorbar
                         cb_vis = cbar.ax.get_visible()
@@ -1853,54 +1851,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 except Exception as e:
                     print(f"Invalid EC width: {e}")
             print_menu()
-        elif cmd == 'k':
-            # Spine colors (w=top, a=left, s=bottom, d=right)
-            try:
-                print("Set spine colors (with matching tick and label colors):")
-                print("  w : top spine    | a : left spine")
-                print("  s : bottom spine | d : right spine")
-                print("Example: w:red a:#4561F7 s:blue d:green")
-                line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
-                if line and line.lower() != 'q':
-                    _snapshot("color-spine")
-                    # Map wasd to spine names
-                    key_to_spine = {'w': 'top', 'a': 'left', 's': 'bottom', 'd': 'right'}
-                    tokens = line.split()
-                    for token in tokens:
-                        if ':' not in token:
-                            print(f"Skip malformed token: {token}")
-                            continue
-                        key_part, color = token.split(':', 1)
-                        key_part = key_part.lower()
-                        if key_part not in key_to_spine:
-                            print(f"Unknown key: {key_part} (use w/a/s/d)")
-                            continue
-                        spine_name = key_to_spine[key_part]
-                        # Set for both axes
-                        for curr_ax in [ax, ec_ax]:
-                            if curr_ax is None:
-                                continue
-                            if spine_name not in curr_ax.spines:
-                                continue
-                            try:
-                                # Set spine color
-                                curr_ax.spines[spine_name].set_edgecolor(color)
-                                # Set tick colors and axis label color for this axis
-                                if spine_name in ('top', 'bottom'):
-                                    curr_ax.tick_params(axis='x', which='both', colors=color)
-                                    curr_ax.xaxis.label.set_color(color)
-                                else:  # left or right
-                                    curr_ax.tick_params(axis='y', which='both', colors=color)
-                                    curr_ax.yaxis.label.set_color(color)
-                            except Exception as e:
-                                print(f"Error setting {spine_name} color on axis: {e}")
-                        print(f"Set {spine_name} spine to {color}")
-                    fig.canvas.draw()
-                else:
-                    print("Canceled.")
-            except Exception as e:
-                print(f"Error in spine color menu: {e}")
-            print_menu()
         elif cmd == 'oc':
             # Change operando colormap (perceptually uniform suggestions)
             available = list(plt.colormaps())
@@ -1976,14 +1926,14 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 # Print header based on mode
                 if ec_ax is not None:
                     print("\n--- Operando+EC Style ---")
-                    print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), n(toggle colorbar/ec), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
+                    print("Commands (Styles): oc(colormap), ow(op width), ew(ec width), h(height), el(EC curve), v(toggle colorbar/ec), t(toggle axes), l(line widths), f(fonts), g(canvas), r(reverse)")
                     print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
                     print("Commands (EC): et(time range), ey(Y-axis type), er(rename)")
                     print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
                     print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\", EC width (ew)={ec_w_in:.3f}\"")
                 else:
                     print("\n--- Operando-Only Style ---")
-                    print("Commands (Styles): oc(colormap), ow(op width), n(toggle colorbar), t(toggle axes), l(line widths), h(height), f(fonts), g(canvas), r(reverse)")
+                    print("Commands (Styles): oc(colormap), ow(op width), v(toggle colorbar), t(toggle axes), l(line widths), h(height), f(fonts), g(canvas), r(reverse)")
                     print("Commands (Operando): ox(X range), oy(Y range), oz(intensity range), or(rename)")
                     print(f"Canvas size (g): {fig_w:.3f} x {fig_h:.3f}")
                     print(f"Geometry: operando width (ow)={ax_w_in:.3f}\", height (h)={ax_h_in:.3f}\"")
@@ -1992,9 +1942,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 cb_vis = bool(cbar.ax.get_visible())
                 ec_vis = bool(ec_ax.get_visible()) if ec_ax is not None else None
                 if ec_ax is not None:
-                    print(f"Visibility (n): colorbar={'shown' if cb_vis else 'hidden'}, EC panel={'shown' if ec_vis else 'hidden'}")
+                    print(f"Visibility (v): colorbar={'shown' if cb_vis else 'hidden'}, EC panel={'shown' if ec_vis else 'hidden'}")
                 else:
-                    print(f"Visibility (n): colorbar={'shown' if cb_vis else 'hidden'}")
+                    print(f"Visibility (v): colorbar={'shown' if cb_vis else 'hidden'}")
                 
                 # Check if Y-axes are reversed (ylim[0] > ylim[1])
                 op_ylim = ax.get_ylim()
