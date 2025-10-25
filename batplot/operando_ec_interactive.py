@@ -499,21 +499,33 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             cb_w_in_s, cb_gap_in_s, ec_gap_in_s, ec_w_in_s, ax_w_in_s, ax_h_in_s = _ensure_fixed_params(fig, ax, cbar.ax, ec_ax)
             # Axes & image
             op_xlim = ax.get_xlim(); op_ylim = ax.get_ylim()
-            ec_xlim = ec_ax.get_xlim(); ec_ylim = ec_ax.get_ylim()
+            # EC axes (only if ec_ax exists)
+            if ec_ax is not None:
+                ec_xlim = ec_ax.get_xlim(); ec_ylim = ec_ax.get_ylim()
+            else:
+                ec_xlim = None; ec_ylim = None
             try:
                 clim = im.get_clim()
             except Exception:
                 clim = None
             cmap_name = getattr(im.get_cmap(), 'name', None)
-            # EC mode and caches
-            mode = getattr(ec_ax, '_ec_y_mode', 'time')
-            ions_abs = getattr(ec_ax, '_ions_abs', None)
-            prev_xlim = getattr(ec_ax, '_prev_ec_xlim', None)
-            ions_expanded = getattr(ec_ax, '_ions_xlim_expanded', False)
-            saved_time_ylim = getattr(ec_ax, '_saved_time_ylim', None)
+            # EC mode and caches (only if ec_ax exists)
+            if ec_ax is not None:
+                mode = getattr(ec_ax, '_ec_y_mode', 'time')
+                ions_abs = getattr(ec_ax, '_ions_abs', None)
+                prev_xlim = getattr(ec_ax, '_prev_ec_xlim', None)
+                ions_expanded = getattr(ec_ax, '_ions_xlim_expanded', False)
+                saved_time_ylim = getattr(ec_ax, '_saved_time_ylim', None)
+                ec_labels = getattr(ec_ax, '_custom_labels', {'x': ec_ax.get_xlabel(), 'y_time': None, 'y_ions': None})
+            else:
+                mode = 'time'
+                ions_abs = None
+                prev_xlim = None
+                ions_expanded = False
+                saved_time_ylim = None
+                ec_labels = None
             # Labels & fonts
             op_labels = getattr(ax, '_custom_labels', {'x': ax.get_xlabel(), 'y': ax.get_ylabel()})
-            ec_labels = getattr(ec_ax, '_custom_labels', {'x': ec_ax.get_xlabel(), 'y_time': None, 'y_ions': None})
             fam = plt.rcParams.get('font.sans-serif', [])
             fsize = plt.rcParams.get('font.size', None)
             # WASD state for both panes
@@ -535,24 +547,28 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                            'labels': ax.yaxis._major_tick_kw.get('label2On', False), 
                            'title': bool(getattr(ax, '_right_ylabel_on', False))},
             }
-            ec_wasd = {
-                'top':    {'spine': _get_spine_visible(ec_ax, 'top'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick1On', True), 
-                           'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick1On', False)), 
-                           'labels': ec_ax.xaxis._major_tick_kw.get('label1On', True), 
-                           'title': bool(getattr(ec_ax, '_top_xlabel_on', False))},
-                'bottom': {'spine': _get_spine_visible(ec_ax, 'bottom'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick2On', True), 
-                           'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick2On', False)), 
-                           'labels': ec_ax.xaxis._major_tick_kw.get('label2On', True), 
-                           'title': bool(ec_ax.get_xlabel())},
-                'left':   {'spine': _get_spine_visible(ec_ax, 'left'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick1On', False), 
-                           'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick1On', False)), 
-                           'labels': ec_ax.yaxis._major_tick_kw.get('label1On', False), 
-                           'title': bool(ec_ax.get_ylabel())},
-                'right':  {'spine': _get_spine_visible(ec_ax, 'right'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick2On', True), 
-                           'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick2On', False)), 
-                           'labels': ec_ax.yaxis._major_tick_kw.get('label2On', True), 
-                           'title': bool(ec_ax.get_ylabel())},
-            }
+            # EC WASD state (only if ec_ax exists)
+            if ec_ax is not None:
+                ec_wasd = {
+                    'top':    {'spine': _get_spine_visible(ec_ax, 'top'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick1On', True), 
+                               'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick1On', False)), 
+                               'labels': ec_ax.xaxis._major_tick_kw.get('label1On', True), 
+                               'title': bool(getattr(ec_ax, '_top_xlabel_on', False))},
+                    'bottom': {'spine': _get_spine_visible(ec_ax, 'bottom'), 'ticks': ec_ax.xaxis._major_tick_kw.get('tick2On', True), 
+                               'minor': bool(ec_ax.xaxis._minor_tick_kw.get('tick2On', False)), 
+                               'labels': ec_ax.xaxis._major_tick_kw.get('label2On', True), 
+                               'title': bool(ec_ax.get_xlabel())},
+                    'left':   {'spine': _get_spine_visible(ec_ax, 'left'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick1On', False), 
+                               'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick1On', False)), 
+                               'labels': ec_ax.yaxis._major_tick_kw.get('label1On', False), 
+                               'title': bool(ec_ax.get_ylabel())},
+                    'right':  {'spine': _get_spine_visible(ec_ax, 'right'), 'ticks': ec_ax.yaxis._major_tick_kw.get('tick2On', True), 
+                               'minor': bool(ec_ax.yaxis._minor_tick_kw.get('tick2On', False)), 
+                               'labels': ec_ax.yaxis._major_tick_kw.get('label2On', True), 
+                               'title': bool(ec_ax.get_ylabel())},
+                }
+            else:
+                ec_wasd = None
             state_history.append({
                 'note': note,
                 'fig_size': (fig_w, fig_h),
@@ -566,10 +582,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 'ions_expanded': bool(ions_expanded),
                 'saved_time_ylim': saved_time_ylim,
                 'op_labels': dict(op_labels) if isinstance(op_labels, dict) else {'x': ax.get_xlabel(), 'y': ax.get_ylabel()},
-                'ec_labels': dict(ec_labels) if isinstance(ec_labels, dict) else {'x': ec_ax.get_xlabel(), 'y_time': None, 'y_ions': None},
+                'ec_labels': dict(ec_labels) if ec_labels is not None and isinstance(ec_labels, dict) else None,
                 'font': {'family': list(fam), 'size': fsize},
                 'op_wasd': dict(op_wasd),
-                'ec_wasd': dict(ec_wasd),
+                'ec_wasd': dict(ec_wasd) if ec_wasd is not None else None,
                 'tick_lengths': getattr(fig, '_tick_lengths', None),
                 'tick_direction': getattr(fig, '_tick_direction', 'out'),
             })
@@ -603,7 +619,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 pass
             try:
                 ec_l = snap.get('ec_labels', {})
-                ec_ax.set_xlabel(ec_l.get('x') or ec_ax.get_xlabel() or '')
+                if ec_ax is not None and ec_l:
+                    ec_ax.set_xlabel(ec_l.get('x') or ec_ax.get_xlabel() or '')
             except Exception:
                 pass
             # Fonts - use set_fonts to properly update all labels including label2
@@ -637,71 +654,75 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 pass
             # EC axes
             try:
-                ec_ax.set_xlim(*snap['ec_xlim']); ec_ax.set_ylim(*snap['ec_ylim'])
+                if ec_ax is not None:
+                    ec_ax.set_xlim(*snap['ec_xlim']); ec_ax.set_ylim(*snap['ec_ylim'])
             except Exception:
                 pass
             # EC y-mode
             try:
-                mode = snap.get('ec_mode', 'time')
-                if mode == 'ions':
-                    setattr(ec_ax, '_ec_y_mode', 'ions')
-                    ions_abs = snap.get('ions_abs')
-                    if ions_abs is not None:
-                        setattr(ec_ax, '_ions_abs', np.asarray(ions_abs, float))
-                    # Minimal re-install of ions formatter similar to ey handler
-                    from matplotlib.ticker import FuncFormatter
-                    t = np.asarray(getattr(ec_ax, '_ec_time_h', []), float)
-                    def _fmt_ions(y, pos):
-                        try:
-                            arr = getattr(ec_ax, '_ions_abs', None)
-                            if arr is None or t.size == 0:
-                                return f"{y:.6g}"
-                            val = float(np.interp(y, t, arr, left=arr[0], right=arr[-1]))
-                            s = ("%f" % val).rstrip('0').rstrip('.')
-                            return s
-                        except Exception:
-                            return ""
-                    ec_ax.yaxis.set_major_formatter(FuncFormatter(_fmt_ions))
-                    try:
-                        ec_ax.set_ylabel(snap.get('ec_labels',{}).get('y_ions') or 'Number of ions')
-                    except Exception:
-                        pass
-                    # Restore label positions and right ticks
-                    try:
-                        ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
-                    except Exception:
-                        pass
-                    # Restore xlim adjustments used in ions mode if present
-                    prev_xlim = snap.get('prev_ec_xlim')
-                    ions_exp = bool(snap.get('ions_expanded', False))
-                    if prev_xlim and not ions_exp:
-                        try:
-                            ec_ax.set_xlim(*prev_xlim)
-                        except Exception:
-                            pass
-                    elif ions_exp and prev_xlim:
-                        try:
-                            ec_ax.set_xlim(*prev_xlim)
-                        except Exception:
-                            pass
+                if ec_ax is None:
+                    pass  # Skip EC mode restoration when no EC panel
                 else:
-                    setattr(ec_ax, '_ec_y_mode', 'time')
-                    from matplotlib.ticker import ScalarFormatter
-                    ec_ax.yaxis.set_major_formatter(ScalarFormatter())
-                    try:
-                        ec_ax.set_ylabel(snap.get('ec_labels',{}).get('y_time') or 'Time (h)')
-                    except Exception:
-                        pass
-                    try:
-                        ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
-                    except Exception:
-                        pass
-                    st_ylim = snap.get('saved_time_ylim')
-                    if st_ylim and isinstance(st_ylim,(list,tuple)) and len(st_ylim)==2:
+                    mode = snap.get('ec_mode', 'time')
+                    if mode == 'ions':
+                        setattr(ec_ax, '_ec_y_mode', 'ions')
+                        ions_abs = snap.get('ions_abs')
+                        if ions_abs is not None:
+                            setattr(ec_ax, '_ions_abs', np.asarray(ions_abs, float))
+                        # Minimal re-install of ions formatter similar to ey handler
+                        from matplotlib.ticker import FuncFormatter
+                        t = np.asarray(getattr(ec_ax, '_ec_time_h', []), float)
+                        def _fmt_ions(y, pos):
+                            try:
+                                arr = getattr(ec_ax, '_ions_abs', None)
+                                if arr is None or t.size == 0:
+                                    return f"{y:.6g}"
+                                val = float(np.interp(y, t, arr, left=arr[0], right=arr[-1]))
+                                s = ("%f" % val).rstrip('0').rstrip('.')
+                                return s
+                            except Exception:
+                                return ""
+                        ec_ax.yaxis.set_major_formatter(FuncFormatter(_fmt_ions))
                         try:
-                            ec_ax.set_ylim(*st_ylim)
+                            ec_ax.set_ylabel(snap.get('ec_labels',{}).get('y_ions') or 'Number of ions')
                         except Exception:
                             pass
+                        # Restore label positions and right ticks
+                        try:
+                            ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
+                        except Exception:
+                            pass
+                        # Restore xlim adjustments used in ions mode if present
+                        prev_xlim = snap.get('prev_ec_xlim')
+                        ions_exp = bool(snap.get('ions_expanded', False))
+                        if prev_xlim and not ions_exp:
+                            try:
+                                ec_ax.set_xlim(*prev_xlim)
+                            except Exception:
+                                pass
+                        elif ions_exp and prev_xlim:
+                            try:
+                                ec_ax.set_xlim(*prev_xlim)
+                            except Exception:
+                                pass
+                    else:
+                        setattr(ec_ax, '_ec_y_mode', 'time')
+                        from matplotlib.ticker import ScalarFormatter
+                        ec_ax.yaxis.set_major_formatter(ScalarFormatter())
+                        try:
+                            ec_ax.set_ylabel(snap.get('ec_labels',{}).get('y_time') or 'Time (h)')
+                        except Exception:
+                            pass
+                        try:
+                            ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
+                        except Exception:
+                            pass
+                        st_ylim = snap.get('saved_time_ylim')
+                        if st_ylim and isinstance(st_ylim,(list,tuple)) and len(st_ylim)==2:
+                            try:
+                                ec_ax.set_ylim(*st_ylim)
+                            except Exception:
+                                pass
             except Exception:
                 pass
             # Restore WASD state for both panes
@@ -737,7 +758,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             setattr(ax, '_top_xlabel_on', bool(st['title']))
                         elif side == 'right' and 'title' in st:
                             setattr(ax, '_right_ylabel_on', bool(st['title']))
-                if ec_wasd:
+                if ec_wasd and ec_ax is not None:
                     for side in ['top', 'bottom', 'left', 'right']:
                         st = ec_wasd.get(side, {})
                         # Spine
