@@ -25,20 +25,22 @@ def _get_fig_size(fig) -> Tuple[float, float]:
 
 def _get_geometry_snapshot(ax, ec_ax) -> Dict:
     """Collects a snapshot of geometry settings (axes labels and limits)."""
-    return {
+    snapshot = {
         'operando': {
             'xlim': list(ax.get_xlim()),
             'ylim': list(ax.get_ylim()),
             'xlabel': ax.get_xlabel() or '',
             'ylabel': ax.get_ylabel() or '',
-        },
-        'ec': {
+        }
+    }
+    if ec_ax is not None:
+        snapshot['ec'] = {
             'xlim': list(ec_ax.get_xlim()),
             'ylim': list(ec_ax.get_ylim()),
             'xlabel': ec_ax.get_xlabel() or '',
             'ylabel': ec_ax.get_ylabel() or '',
         }
-    }
+    return snapshot
 
 
 def _ensure_fixed_params(fig, ax, cbar_ax, ec_ax):
@@ -46,14 +48,20 @@ def _ensure_fixed_params(fig, ax, cbar_ax, ec_ax):
     fig_w_in, fig_h_in = _get_fig_size(fig)
     ax_x0, ax_y0, ax_wf, ax_hf = ax.get_position().bounds
     cb_x0, cb_y0, cb_wf, cb_hf = cbar_ax.get_position().bounds
-    ec_x0, ec_y0, ec_wf, ec_hf = ec_ax.get_position().bounds
-
+    
     cb_w_in = getattr(cbar_ax, '_fixed_cb_w_in', cb_wf * fig_w_in)
     cb_gap_in = getattr(cbar_ax, '_fixed_cb_gap_in', (ax_x0 - (cb_x0 + cb_wf)) * fig_w_in)
-    ec_gap_in = getattr(ec_ax, '_fixed_ec_gap_in', (ec_x0 - (ax_x0 + ax_wf)) * fig_w_in)
-    ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_wf * fig_w_in)
     ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_wf * fig_w_in)
     ax_h_in = getattr(ax, '_fixed_ax_h_in', ax_hf * fig_h_in)
+    
+    if ec_ax is not None:
+        ec_x0, ec_y0, ec_wf, ec_hf = ec_ax.get_position().bounds
+        ec_gap_in = getattr(ec_ax, '_fixed_ec_gap_in', (ec_x0 - (ax_x0 + ax_wf)) * fig_w_in)
+        ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_wf * fig_w_in)
+    else:
+        ec_gap_in = 0.0
+        ec_w_in = 0.0
+    
     return cb_w_in, cb_gap_in, ec_gap_in, ec_w_in, ax_w_in, ax_h_in
 
 
@@ -68,24 +76,35 @@ def _apply_group_layout_inches(fig, ax, cbar_ax, ec_ax,
     ax_hf = max(0.0, ax_h_in / fig_h_in)
     cb_wf = max(0.0, cb_w_in / fig_w_in)
     cb_gap_f = max(0.0, cb_gap_in / fig_w_in)
-    ec_gap_f = max(0.0, ec_gap_in / fig_w_in)
-    ec_wf = max(0.0, ec_w_in / fig_w_in)
-
-    # Total width and centered left edge
-    total_wf = cb_wf + cb_gap_f + ax_wf + ec_gap_f + ec_wf
+    
+    if ec_ax is not None:
+        ec_gap_f = max(0.0, ec_gap_in / fig_w_in)
+        ec_wf = max(0.0, ec_w_in / fig_w_in)
+        # Total width and centered left edge
+        total_wf = cb_wf + cb_gap_f + ax_wf + ec_gap_f + ec_wf
+    else:
+        ec_gap_f = 0.0
+        ec_wf = 0.0
+        # Total width without EC panel
+        total_wf = cb_wf + cb_gap_f + ax_wf
+    
     group_left = 0.5 - total_wf / 2.0
     y0 = 0.5 - ax_hf / 2.0
 
     # Positions: [x0, y0, w, h]
     cb_x0 = group_left
     ax_x0 = cb_x0 + cb_wf + cb_gap_f
-    ec_x0 = ax_x0 + ax_wf + ec_gap_f
     cb_hf = ax_hf  # match heights
 
     # Apply
     ax.set_position([ax_x0, y0, ax_wf, ax_hf])
     cbar_ax.set_position([cb_x0, y0, cb_wf, cb_hf])
-    ec_ax.set_position([ec_x0, y0, ec_wf, ax_hf])
+    
+    if ec_ax is not None:
+        ec_x0 = ax_x0 + ax_wf + ec_gap_f
+        ec_ax.set_position([ec_x0, y0, ec_wf, ax_hf])
+        setattr(ec_ax, '_fixed_ec_gap_in', ec_gap_in)
+        setattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
 
     # Persist inches for future operations
     setattr(cbar_ax, '_fixed_cb_w_in', cb_w_in)
@@ -149,6 +168,102 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         except Exception:
             pass
     def print_menu():
+        # Adjust menu based on whether EC panel is available
+        if ec_ax is not None:
+            col1 = [
+                "oc: op colormap",
+                "ow: op width",
+                "el: ec curve",
+                "ew: ec width",
+                " k: spine colors",
+                " t: toggle axes",
+                " l: line",
+                " h: height",
+                " f: fonts",
+                " g: size",
+                " r: reverse plot"
+            ]
+            col2 = [
+                "ox: X range",
+                "oy: Y range",
+                "oz: intensity range",
+                "or: rename"
+            ]
+            col3 = [
+                "et: time range",
+                "ey: y axis type",
+                "er: rename",
+                
+            ]
+            col4 = [
+                "n: crosshair",
+                "p: print(export) style/geom",
+                "i: import style/geom",
+                "e: export figure",
+                "s: save project",
+                "b: undo",
+                "q: quit",
+            ]
+            # Dynamic column widths
+            w1 = max(len("(Styles)"), *(len(s) for s in col1), 12)
+            w2 = max(len("(Operando)"), *(len(s) for s in col2), 14)
+            w3 = max(len("(EC)"), *(len(s) for s in col3), 14)
+            w4 = max(len("(Options)"), *(len(s) for s in col4), 16)
+            rows = max(len(col1), len(col2), len(col3), len(col4))
+            print("\nInteractive menu:")
+            print(f"  {'(Styles)':<{w1}} {'(Operando)':<{w2}} {'(EC)':<{w3}} {'(Options)':<{w4}}")
+            for i in range(rows):
+                p1 = col1[i] if i < len(col1) else ""
+                p2 = col2[i] if i < len(col2) else ""
+                p3 = col3[i] if i < len(col3) else ""
+                p4 = col4[i] if i < len(col4) else ""
+                print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}} {p4:<{w4}}")
+        else:
+            # Operando-only menu (no EC panel)
+            col1 = [
+                "oc: op colormap",
+                "ow: op width",
+                " k: spine colors",
+                " t: toggle axes",
+                "d1: tick & spine visibility",
+                "d2: tick width",
+                "d3: tick length",
+                "d4: minor ticks",
+                "d5: nice ticks (auto)",
+                " l: line",
+                " h: height",
+                " f: fonts",
+                " g: size",
+                " r: reverse plot"
+            ]
+            col2 = [
+                "ox: X range",
+                "oy: Y range",
+                "oz: intensity range",
+                "or: rename"
+            ]
+            col3 = [
+                "n: crosshair",
+                "p: print(export) style/geom",
+                "i: import style/geom",
+                "e: export figure",
+                "s: save project",
+                "b: undo",
+                "q: quit",
+            ]
+            w1 = max(len("(Styles)"), *(len(s) for s in col1), 12)
+            w2 = max(len("(Operando)"), *(len(s) for s in col2), 14)
+            w3 = max(len("(Options)"), *(len(s) for s in col3), 16)
+            rows = max(len(col1), len(col2), len(col3))
+            print("\nInteractive menu:")
+            print(f"  {'(Styles)':<{w1}} {'(Operando)':<{w2}} {'(Options)':<{w3}}")
+            for i in range(rows):
+                p1 = col1[i] if i < len(col1) else ""
+                p2 = col2[i] if i < len(col2) else ""
+                p3 = col3[i] if i < len(col3) else ""
+                print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
+        print()
+    def print_menu_old():
         col1 = [
             "oc: op colormap",
             "ow: op width",
@@ -1160,12 +1275,18 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 except Exception:
                     pass
             while True:
-                print("Choose pane: o=operando, e=ec, q=back")
+                if ec_ax is not None:
+                    print("Choose pane: o=operando, e=ec, q=back")
+                else:
+                    print("Choose pane: o=operando, q=back")
                 pane = input("ot> ").strip().lower()
                 if not pane:
                     continue
                 if pane == 'q':
                     break
+                if ec_ax is None and pane == 'e':
+                    print("EC panel not available (no .mpt file in folder).")
+                    continue
                 target = ax if pane == 'o' else (ec_ax if pane == 'e' else None)
                 if target is None:
                     print("Unknown pane."); continue
@@ -1623,6 +1744,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd == 'ew':
             # Always read fresh value from attribute to avoid stale cached value
+            if ec_ax is None:
+                print("EC panel not available (no .mpt file in folder).")
+                print_menu()
+                continue
             ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
             print(f"Current EC width: {ec_w_in:.2f} in")
             val = input("New EC width (inches): ").strip()
@@ -2567,6 +2692,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd == 'er':
             # EC rename submenu (tracks separate labels for time vs ions modes)
+            if ec_ax is None:
+                print("EC panel not available (no .mpt file in folder).")
+                print_menu()
+                continue
             try:
                 if not hasattr(ec_ax, '_custom_labels'):
                     ec_ax._custom_labels = {'x': None, 'y_time': None, 'y_ions': None}
@@ -2615,6 +2744,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd == 'el':
             # EC line style submenu: color and linewidth
+            if ec_ax is None:
+                print("EC panel not available (no .mpt file in folder).")
+                print_menu()
+                continue
             try:
                 # Resolve EC line handle
                 ln = getattr(ec_ax, '_ec_line', None)
@@ -2662,6 +2795,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"EC line styling failed: {e}")
             print_menu()
         elif cmd == 'et':
+            if ec_ax is None:
+                print("EC panel not available (no .mpt file in folder).")
+                print_menu()
+                continue
             cur = ec_ax.get_ylim(); print(f"Current EC time range (Y): {cur[0]:.4g} {cur[1]:.4g}")
             line = input("New time range (min max, blank=cancel): ").strip()
             if line:
@@ -2726,6 +2863,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd == 'ey':
             # Submenu: n = show number of ions, t = back to time
+            if ec_ax is None:
+                print("EC panel not available (no .mpt file in folder).")
+                print_menu()
+                continue
             try:
                 time_h = getattr(ec_ax, '_ec_time_h', None)
                 voltage_v = getattr(ec_ax, '_ec_voltage_v', None)

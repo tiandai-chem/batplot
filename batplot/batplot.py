@@ -1090,11 +1090,12 @@ def batplot_main() -> int:
                     except Exception:
                         pass
                     try:
-                        if has_ec and (operando_ec_interactive_menu is not None) and (ec_ax is not None):
+                        # Call interactive menu regardless of EC presence
+                        # When ec_ax is None, EC-related commands will be disabled
+                        if operando_ec_interactive_menu is not None:
                             operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax)
                         else:
-                            # Operando-only interactive menu has been removed; fall back to non-interactive view
-                            print("Operando-only interactive menu is no longer available; showing figure without interactive controls.\nTip: include EC data to use the combined operando+EC interactive menu.")
+                            print("Interactive menu not available.")
                     except Exception as _ie:
                         print(f"Interactive menu failed: {_ie}")
                     _plt.show()
