@@ -1367,8 +1367,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     for name in ('top','bottom','left','right'):
                         if is_ec and name == 'left':
                             continue  # Don't touch left spine for EC panel
-                        if is_operando and name == 'right':
-                            continue  # Don't touch right spine for operando panel
+                        if is_operando and name == 'right' and ec_ax is not None:
+                            continue  # Don't touch right spine for operando panel ONLY if EC panel exists
                         _set_spine_visible(axis, name, bool(wasd_state[name]['spine']))
                     
                     # Major ticks & labels for X axis (top/bottom)
@@ -1380,10 +1380,14 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         # EC panel: only control right side, leave left alone
                         axis.tick_params(axis='y', right=bool(wasd_state['right']['ticks']),
                                          labelright=bool(wasd_state['right']['labels']))
-                    elif is_operando:
-                        # Operando panel: only control left side, leave right alone
+                    elif is_operando and ec_ax is not None:
+                        # Operando panel with EC: only control left side, leave right alone
                         axis.tick_params(axis='y', left=bool(wasd_state['left']['ticks']),
                                          labelleft=bool(wasd_state['left']['labels']))
+                    elif is_operando and ec_ax is None:
+                        # Operando-only mode: control both left and right sides
+                        axis.tick_params(axis='y', left=bool(wasd_state['left']['ticks']), right=bool(wasd_state['right']['ticks']),
+                                         labelleft=bool(wasd_state['left']['labels']), labelright=bool(wasd_state['right']['labels']))
                     else:
                         # Fallback: control both sides
                         axis.tick_params(axis='y', left=bool(wasd_state['left']['ticks']), right=bool(wasd_state['right']['ticks']),
@@ -1400,9 +1404,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     if is_ec:
                         # EC panel: only control right side minor ticks
                         axis.tick_params(axis='y', which='minor', right=bool(wasd_state['right']['minor']), labelright=False)
-                    elif is_operando:
-                        # Operando panel: only control left side minor ticks
+                    elif is_operando and ec_ax is not None:
+                        # Operando panel with EC: only control left side minor ticks
                         axis.tick_params(axis='y', which='minor', left=bool(wasd_state['left']['minor']), labelleft=False)
+                    elif is_operando and ec_ax is None:
+                        # Operando-only mode: control both left and right side minor ticks
+                        axis.tick_params(axis='y', which='minor', left=bool(wasd_state['left']['minor']), right=bool(wasd_state['right']['minor']), labelleft=False, labelright=False)
                     else:
                         # Fallback: control both sides
                         axis.tick_params(axis='y', which='minor', left=bool(wasd_state['left']['minor']), right=bool(wasd_state['right']['minor']), labelleft=False, labelright=False)
@@ -1435,8 +1442,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     axis._top_xlabel_on = bool(wasd_state['top']['title'])
                     
                     # Y-axis titles - only apply for available sides
-                    if is_operando:
-                        # Operando panel: only control left ylabel
+                    if is_operando and ec_ax is not None:
+                        # Operando panel WITH EC: only control left ylabel
                         if bool(wasd_state['left']['title']):
                             if hasattr(axis,'_stored_ylabel') and isinstance(axis._stored_ylabel,str) and axis._stored_ylabel:
                                 axis.set_ylabel(axis._stored_ylabel)
@@ -1445,8 +1452,19 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                 try: axis._stored_ylabel = axis.get_ylabel()
                                 except Exception: axis._stored_ylabel = ''
                             axis.set_ylabel("")
-                        # Right ylabel is disabled for operando
+                        # Right ylabel is disabled for operando when EC exists
                         axis._right_ylabel_on = False
+                    elif is_operando and ec_ax is None:
+                        # Operando-only mode: control both left and right ylabels
+                        if bool(wasd_state['left']['title']):
+                            if hasattr(axis,'_stored_ylabel') and isinstance(axis._stored_ylabel,str) and axis._stored_ylabel:
+                                axis.set_ylabel(axis._stored_ylabel)
+                        else:
+                            if not hasattr(axis,'_stored_ylabel'):
+                                try: axis._stored_ylabel = axis.get_ylabel()
+                                except Exception: axis._stored_ylabel = ''
+                            axis.set_ylabel("")
+                        axis._right_ylabel_on = bool(wasd_state['right']['title'])
                     elif is_ec:
                         # EC panel: control the actual ylabel (already positioned right)
                         if bool(wasd_state['right']['title']):
