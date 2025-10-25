@@ -1943,7 +1943,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         start_ions = ion_params.get('start_ions', 'N/A')
                         print(f"  Ion params: mass={mass_mg} mg, cap/ion={cap_per_ion} mAh/g, start={start_ions}")
                 
-                # Display operando pane tick visibility (t>o command: aws12345, 'd' not available)
+                # Display operando pane tick visibility
                 def _onoff(v): return 'ON ' if bool(v) else 'off'
                 op_ts = getattr(ax, '_saved_tick_state', {})
                 op_wasd = {
@@ -1962,65 +1962,84 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                'minor': bool(op_ts.get('mbx', False)), 
                                'labels': bool(op_ts.get('b_labels', op_ts.get('bx', True))), 
                                'title': bool(ax.get_xlabel())},
+                    'right':  {'spine': bool(ax.spines.get('right').get_visible() if ax.spines.get('right') else False),
+                               'ticks': bool(op_ts.get('r_ticks', op_ts.get('ry', False))), 
+                               'minor': bool(op_ts.get('mry', False)), 
+                               'labels': bool(op_ts.get('r_labels', op_ts.get('ry', False))), 
+                               'title': bool(getattr(ax, '_right_ylabel_on', False))},
                 }
-                print("Operando pane (t>o: a=left, w=top, s=bottom; 'd' not available):")
-                for side_key, side_name in [('left', 'a'), ('top', 'w'), ('bottom', 's')]:
-                    s = op_wasd[side_key]
-                    print(f"  {side_name}1:{_onoff(s['spine'])} {side_name}2:{_onoff(s['ticks'])} {side_name}3:{_onoff(s['minor'])} {side_name}4:{_onoff(s['labels'])} {side_name}5:{_onoff(s['title'])}")
+                if ec_ax is not None:
+                    # Dual pane mode: operando has a/w/s, EC has w/s/d
+                    print("Operando pane (t>o: a=left, w=top, s=bottom; 'd' not available):")
+                    for side_key, side_name in [('left', 'a'), ('top', 'w'), ('bottom', 's')]:
+                        s = op_wasd[side_key]
+                        print(f"  {side_name}1:{_onoff(s['spine'])} {side_name}2:{_onoff(s['ticks'])} {side_name}3:{_onoff(s['minor'])} {side_name}4:{_onoff(s['labels'])} {side_name}5:{_onoff(s['title'])}")
+                else:
+                    # Operando-only mode: all four sides available
+                    print("Operando pane (t>o: a=left, w=top, s=bottom, d=right):")
+                    for side_key, side_name in [('left', 'a'), ('top', 'w'), ('bottom', 's'), ('right', 'd')]:
+                        s = op_wasd[side_key]
+                        print(f"  {side_name}1:{_onoff(s['spine'])} {side_name}2:{_onoff(s['ticks'])} {side_name}3:{_onoff(s['minor'])} {side_name}4:{_onoff(s['labels'])} {side_name}5:{_onoff(s['title'])}")
                 
-                # Display EC pane tick visibility (t>e command: wsd12345, 'a' not available)
-                ec_ts = getattr(ec_ax, '_saved_tick_state', {})
-                ec_wasd = {
-                    'top':    {'spine': bool(ec_ax.spines.get('top').get_visible() if ec_ax.spines.get('top') else False),
-                               'ticks': bool(ec_ts.get('t_ticks', ec_ts.get('tx', False))), 
-                               'minor': bool(ec_ts.get('mtx', False)), 
-                               'labels': bool(ec_ts.get('t_labels', ec_ts.get('tx', False))), 
-                               'title': bool(getattr(ec_ax, '_top_xlabel_on', False))},
-                    'bottom': {'spine': bool(ec_ax.spines.get('bottom').get_visible() if ec_ax.spines.get('bottom') else False),
-                               'ticks': bool(ec_ts.get('b_ticks', ec_ts.get('bx', True))), 
-                               'minor': bool(ec_ts.get('mbx', False)), 
-                               'labels': bool(ec_ts.get('b_labels', ec_ts.get('bx', True))), 
-                               'title': bool(ec_ax.get_xlabel())},
-                    'right':  {'spine': bool(ec_ax.spines.get('right').get_visible() if ec_ax.spines.get('right') else False),
-                               'ticks': bool(ec_ts.get('r_ticks', ec_ts.get('ry', False))), 
-                               'minor': bool(ec_ts.get('mry', False)), 
-                               'labels': bool(ec_ts.get('r_labels', ec_ts.get('ry', False))), 
-                               'title': bool(ec_ax.get_ylabel())},  # Use actual ylabel for EC
-                }
-                print("EC pane (t>e: w=top, s=bottom, d=right; 'a' not available):")
-                for side_key, side_name in [('top', 'w'), ('bottom', 's'), ('right', 'd')]:
-                    s = ec_wasd[side_key]
-                    print(f"  {side_name}1:{_onoff(s['spine'])} {side_name}2:{_onoff(s['ticks'])} {side_name}3:{_onoff(s['minor'])} {side_name}4:{_onoff(s['labels'])} {side_name}5:{_onoff(s['title'])}")
+                # Display EC pane tick visibility (only if EC panel exists)
+                if ec_ax is not None:
+                    ec_ts = getattr(ec_ax, '_saved_tick_state', {})
+                    ec_wasd = {
+                        'top':    {'spine': bool(ec_ax.spines.get('top').get_visible() if ec_ax.spines.get('top') else False),
+                                   'ticks': bool(ec_ts.get('t_ticks', ec_ts.get('tx', False))), 
+                                   'minor': bool(ec_ts.get('mtx', False)), 
+                                   'labels': bool(ec_ts.get('t_labels', ec_ts.get('tx', False))), 
+                                   'title': bool(getattr(ec_ax, '_top_xlabel_on', False))},
+                        'bottom': {'spine': bool(ec_ax.spines.get('bottom').get_visible() if ec_ax.spines.get('bottom') else False),
+                                   'ticks': bool(ec_ts.get('b_ticks', ec_ts.get('bx', True))), 
+                                   'minor': bool(ec_ts.get('mbx', False)), 
+                                   'labels': bool(ec_ts.get('b_labels', ec_ts.get('bx', True))), 
+                                   'title': bool(ec_ax.get_xlabel())},
+                        'right':  {'spine': bool(ec_ax.spines.get('right').get_visible() if ec_ax.spines.get('right') else False),
+                                   'ticks': bool(ec_ts.get('r_ticks', ec_ts.get('ry', False))), 
+                                   'minor': bool(ec_ts.get('mry', False)), 
+                                   'labels': bool(ec_ts.get('r_labels', ec_ts.get('ry', False))), 
+                                   'title': bool(ec_ax.get_ylabel())},  # Use actual ylabel for EC
+                    }
+                    print("EC pane (t>e: w=top, s=bottom, d=right; 'a' not available):")
+                    for side_key, side_name in [('top', 'w'), ('bottom', 's'), ('right', 'd')]:
+                        s = ec_wasd[side_key]
+                        print(f"  {side_name}1:{_onoff(s['spine'])} {side_name}2:{_onoff(s['ticks'])} {side_name}3:{_onoff(s['minor'])} {side_name}4:{_onoff(s['labels'])} {side_name}5:{_onoff(s['title'])}")
+                else:
+                    ec_wasd = None
                 
                 # Line widths (l command: frame and tick widths)
                 print("\nLine widths (l command):")
                 op_frame_lw = ax.spines.get('bottom').get_linewidth() if ax.spines.get('bottom') else 1.0
-                ec_frame_lw = ec_ax.spines.get('bottom').get_linewidth() if ec_ax.spines.get('bottom') else 1.0
                 try:
                     op_tick_lw = ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ax.xaxis.get_major_ticks() else 1.0
                 except:
                     op_tick_lw = 1.0
-                try:
-                    ec_tick_lw = ec_ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ec_ax.xaxis.get_major_ticks() else 1.0
-                except:
-                    ec_tick_lw = 1.0
                 print(f"  Operando: frame={op_frame_lw:.2f}, ticks={op_tick_lw:.2f}")
-                print(f"  EC: frame={ec_frame_lw:.2f}, ticks={ec_tick_lw:.2f}")
                 
-                # EC curve properties (el command)
-                print("\nEC curve (el command):")
-                ln = getattr(ec_ax, '_ec_line', None)
-                if ln is None and ec_ax.lines:
-                    ln = ec_ax.lines[0]
-                if ln is not None:
+                if ec_ax is not None:
+                    ec_frame_lw = ec_ax.spines.get('bottom').get_linewidth() if ec_ax.spines.get('bottom') else 1.0
                     try:
-                        ec_color = ln.get_color()
-                        ec_lw = ln.get_linewidth()
-                        print(f"  Color: {ec_color}, Linewidth: {ec_lw:.2f}")
-                    except Exception:
-                        print("  (unable to read EC line properties)")
-                else:
-                    print("  (no EC line found)")
+                        ec_tick_lw = ec_ax.xaxis.get_major_ticks()[0].tick1line.get_markersize() if ec_ax.xaxis.get_major_ticks() else 1.0
+                    except:
+                        ec_tick_lw = 1.0
+                    print(f"  EC: frame={ec_frame_lw:.2f}, ticks={ec_tick_lw:.2f}")
+                
+                # EC curve properties (el command, only if EC panel exists)
+                if ec_ax is not None:
+                    print("\nEC curve (el command):")
+                    ln = getattr(ec_ax, '_ec_line', None)
+                    if ln is None and ec_ax.lines:
+                        ln = ec_ax.lines[0]
+                    if ln is not None:
+                        try:
+                            ec_color = ln.get_color()
+                            ec_lw = ln.get_linewidth()
+                            print(f"  Color: {ec_color}, Linewidth: {ec_lw:.2f}")
+                        except Exception:
+                            print("  (unable to read EC line properties)")
+                    else:
+                        print("  (no EC line found)")
                 
                 print("-------------------------\n")
                 # List style files (.bps, .bpsg, .bpcfg) for convenience
@@ -2414,8 +2433,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         except Exception:
                             pass
                 
-                # Apply EC WASD state (v2)
-                if version >= 2:
+                # Apply EC WASD state (v2, only if EC panel exists)
+                if version >= 2 and ec_ax is not None:
                     ec_cfg = cfg.get('ec', {})
                     ec_wasd = ec_cfg.get('wasd_state')
                     if ec_wasd and isinstance(ec_wasd, dict):
