@@ -1771,10 +1771,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     angle_delta = 90 if rot_cmd == 'c' else -90
                     ax._rotation_angle = (ax._rotation_angle + angle_delta) % 360
                     
-                    # Swap X and Y data for all curves
+                    # Swap X and Y data for all curves - MUST COPY to avoid mutation
                     for i in range(len(labels)):
-                        xdata = x_data_list[i]
-                        ydata = y_data_list[i]
+                        xdata = x_data_list[i].copy()  # COPY to avoid mutation
+                        ydata = y_data_list[i].copy()  # COPY to avoid mutation
                         
                         if rot_cmd == 'c':
                             # Clockwise: X->Y, -Y->X
@@ -1789,24 +1789,30 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         y_data_list[i] = new_y
                         ax.lines[i].set_data(new_x, new_y)
                         
-                        # Also update orig_y
+                        # Also update orig_y (normalized data without offset)
                         if i < len(orig_y):
+                            orig_y_data = orig_y[i].copy()  # COPY original
                             if rot_cmd == 'c':
-                                orig_y[i] = xdata.copy()
+                                # For clockwise, orig_y should come from old x_data 
+                                # But we need the normalized version, so recalculate from offset
+                                offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
+                                orig_y[i] = xdata - offset_val
                             else:
-                                orig_y[i] = -xdata.copy()
+                                # For counter-clockwise
+                                offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
+                                orig_y[i] = -(xdata - offset_val)
                     
-                    # Also rotate full data
+                    # Also rotate full data - MUST COPY
                     for i in range(len(x_full_list)):
-                        xf = x_full_list[i]
-                        yf = raw_y_full_list[i]
+                        xf = x_full_list[i].copy()  # COPY to avoid mutation
+                        yf = raw_y_full_list[i].copy()  # COPY to avoid mutation
                         
                         if rot_cmd == 'c':
                             x_full_list[i] = -yf
-                            raw_y_full_list[i] = xf.copy()
+                            raw_y_full_list[i] = xf
                         else:
                             x_full_list[i] = yf
-                            raw_y_full_list[i] = -xf.copy()
+                            raw_y_full_list[i] = -xf
                     
                     # Swap axis limits
                     xlim = ax.get_xlim()
@@ -1832,9 +1838,12 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     
                     direction = "clockwise" if rot_cmd == 'c' else "anti-clockwise"
                     print(f"Plot rotated 90° {direction}. Current rotation: {ax._rotation_angle}°")
+                    print("WARNING: Rotation is experimental. Offsets may need adjustment.")
                     
                 except Exception as e:
                     print(f"Error rotating plot: {e}")
+                    import traceback
+                    traceback.print_exc()
             elif rot_cmd != 'q':
                 print("Invalid choice")
         elif key == 'l':
