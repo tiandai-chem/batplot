@@ -35,7 +35,7 @@ def _print_menu(n_cycles: int, is_dqdv: bool = False):
         "t: toggle axes",
         "h: legend",
         "g: size",
-       
+        "ro: rotation",
     ]
     col2 = [
         "c: cycles/colors",
@@ -648,6 +648,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 'tick_state': dict(tick_state),
                 'wasd_state': dict(getattr(fig, '_ec_wasd_state', {})) if hasattr(fig, '_ec_wasd_state') else {},
                 'fig_size': list(fig.get_size_inches()),
+                'rotation_angle': getattr(fig, '_ec_rotation_angle', 0),
                 'spines': {name: {
                     'lw': (ax.spines.get(name).get_linewidth() if ax.spines.get(name) else None),
                     'visible': (ax.spines.get(name).get_visible() if ax.spines.get(name) else None)
@@ -720,6 +721,12 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 _sync_tick_state()
                 _apply_wasd()
             _update_tick_visibility()
+            # Rotation angle
+            try:
+                rot_angle = snap.get('rotation_angle', 0)
+                setattr(fig, '_ec_rotation_angle', rot_angle)
+            except Exception:
+                pass
             # Spines
             for name, spec in snap.get('spines', {}).items():
                 sp = ax.spines.get(name)
@@ -1172,6 +1179,12 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     if tick_direction:
                         setattr(fig, '_tick_direction', tick_direction)
                         ax.tick_params(axis='both', which='both', direction=tick_direction)
+                except Exception: pass
+                
+                # Rotation angle
+                try:
+                    rotation_angle = cfg.get('rotation_angle', 0)
+                    setattr(fig, '_ec_rotation_angle', rotation_angle)
                 except Exception: pass
                 
                 # Curve linewidth (single value for all curves)
@@ -2004,6 +2017,77 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     fig.canvas.draw_idle()
             _print_menu(len(all_cycles), is_dqdv)
             continue
+        elif key == 'ro':
+            # Rotation feature: rotate plot by 90 degrees
+            while True:
+                print("Rotation menu: c=clockwise 90°, a=anticlockwise 90°, q=back")
+                sub = input("ro> ").strip().lower()
+                if not sub:
+                    continue
+                if sub == 'q':
+                    break
+                if sub in ('c', 'a'):
+                    push_state("rotation")
+                    current_angle = getattr(fig, '_ec_rotation_angle', 0)
+                    # Increment or decrement rotation angle
+                    if sub == 'c':
+                        new_angle = (current_angle + 90) % 360
+                    else:  # 'a'
+                        new_angle = (current_angle - 90) % 360
+                    
+                    try:
+                        print(f"WARNING: Rotation is experimental.")
+                        import traceback
+                        # Rotate all lines on the axes
+                        for ln in ax.lines:
+                            x_data = np.array(ln.get_xdata(), copy=True)
+                            y_data = np.array(ln.get_ydata(), copy=True)
+                            
+                            if sub == 'c':
+                                # Clockwise: (x, y) → (y, -x)
+                                ln.set_data(y_data.copy(), -x_data.copy())
+                            else:  # 'a'
+                                # Anticlockwise: (x, y) → (-y, x)
+                                ln.set_data(-y_data.copy(), x_data.copy())
+                        
+                        # Swap and update labels
+                        xlabel = ax.get_xlabel()
+                        ylabel = ax.get_ylabel()
+                        if sub == 'c':
+                            ax.set_xlabel(ylabel)
+                            ax.set_ylabel(xlabel)
+                        else:
+                            ax.set_xlabel(ylabel)
+                            ax.set_ylabel(xlabel)
+                        
+                        # Swap xlim and ylim
+                        xlim = ax.get_xlim()
+                        ylim = ax.get_ylim()
+                        if sub == 'c':
+                            ax.set_xlim(ylim)
+                            ax.set_ylim(-xlim[1], -xlim[0])
+                        else:
+                            ax.set_xlim(-ylim[1], -ylim[0])
+                            ax.set_ylim(xlim)
+                        
+                        # Store new rotation angle
+                        setattr(fig, '_ec_rotation_angle', new_angle)
+                        
+                        # Rebuild legend to ensure it's positioned correctly
+                        _rebuild_legend(ax)
+                        
+                        print(f"Rotated {'clockwise' if sub == 'c' else 'anticlockwise'} 90°. Total rotation: {new_angle}°")
+                        
+                    except Exception as e:
+                        print(f"Rotation failed: {e}")
+                        traceback.print_exc()
+                    
+                    try:
+                        fig.canvas.draw()
+                    except Exception:
+                        fig.canvas.draw_idle()
+            _print_menu(len(all_cycles), is_dqdv)
+            continue
         else:
             print("Unknown command.")
             _print_menu(len(all_cycles), is_dqdv)
@@ -2154,6 +2238,7 @@ def _get_style_snapshot(fig, ax, cycle_lines: Dict, tick_state: Dict) -> Dict:
         'wasd_state': wasd_state,
         'curve_linewidth': curve_linewidth,
         'curve_markers': curve_marker_props,
+        'rotation_angle': getattr(fig, '_ec_rotation_angle', 0),
     }
 
 
@@ -2171,6 +2256,11 @@ def _print_style_snapshot(cfg: Dict):
     font = cfg.get('font', {})
     print(f"Effective font size (labels/ticks): {font.get('size', '?')}")
     print(f"Font family chain (rcParams['font.sans-serif']): ['{font.get('family', '?')}']")
+
+    # Rotation angle
+    rotation_angle = cfg.get('rotation_angle', 0)
+    if rotation_angle != 0:
+        print(f"Rotation angle: {rotation_angle}°")
 
     # Per-side matrix summary (spine, major, minor, labels, title)
     def _onoff(v):

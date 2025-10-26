@@ -1062,6 +1062,7 @@ def dump_ec_session(
             'spines': spines_state,
             'titles': titles,
             'mode': getattr(ax, '_is_dqdv_mode', None),  # Store dQdV mode flag
+            'rotation_angle': getattr(fig, '_ec_rotation_angle', 0),  # Store rotation angle
         }
         if skip_confirm:
             target = filename
@@ -1293,6 +1294,13 @@ def load_ec_session(filename: str):
             if tick_direction:
                 setattr(fig, '_tick_direction', tick_direction)
                 ax.tick_params(axis='both', which='both', direction=tick_direction)
+        except Exception:
+            pass
+        
+        # Apply rotation angle from version 2
+        try:
+            rotation_angle = sess.get('rotation_angle', 0)
+            setattr(fig, '_ec_rotation_angle', rotation_angle)
         except Exception:
             pass
     else:

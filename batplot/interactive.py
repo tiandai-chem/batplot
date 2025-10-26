@@ -109,8 +109,12 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             col1.append("j: CIF titles")
         col2 = ["a: rearrange", "d: offset", "r: rename", "x: change X", "y: change Y"]
         col3 = ["v: find peaks", "n: crosshair", "p: print(export) style/geom", "i: import style/geom", "e: export figure", "s: save project", "b: undo", "q: quit"]
+        
+        # Hide rotation and offset/y-range in stack mode
         if args.stack:
+            col1 = [item for item in col1 if not item.startswith("ro:")]
             col2 = [item for item in col2 if not item.startswith("d:") and not item.startswith("y:")]
+        
         if not is_diffraction:
             col3 = [item for item in col3 if not item.startswith("n:")]
         # Dynamic widths for cleaner alignment across terminals
@@ -1756,6 +1760,11 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     print("Unknown command. Use 1-{}, a, r, d, or q".format(len(labels)))
         elif key == 'ro':
             # Rotate plot 90 degrees clockwise or counter-clockwise
+            # Only allowed in normal XY mode (not stack mode)
+            if args.stack:
+                print("Rotation is disabled in --stack mode.")
+                continue
+            
             print("\nRotate plot:")
             print("  c: clockwise (90°)")
             print("  a: anti-clockwise (-90°)")
