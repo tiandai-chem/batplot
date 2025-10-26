@@ -63,6 +63,11 @@ def print_style_info(
     print(f"Font family chain (rcParams['font.sans-serif']): {plt.rcParams.get('font.sans-serif')}")
     print(f"Mathtext fontset: {plt.rcParams.get('mathtext.fontset')}")
 
+    # Rotation angle
+    rotation_angle = getattr(ax, '_rotation_angle', 0)
+    if rotation_angle != 0:
+        print(f"Rotation angle (ro): {rotation_angle}°")
+
     # Per-side matrix summary (spine, major, minor, labels, title)
     def _onoff(v):
         return 'ON ' if bool(v) else 'off'
@@ -298,6 +303,9 @@ def export_style_config(
             "has_bottom_x": bool(ax.get_xlabel()),
             "has_left_y": bool(ax.get_ylabel()),
         }
+        # Save rotation angle
+        cfg["rotation_angle"] = getattr(ax, '_rotation_angle', 0)
+        
         # Save curve names visibility
         cfg["curve_names_visible"] = True  # Default to visible
         if label_text_objects and len(label_text_objects) > 0:
@@ -739,6 +747,13 @@ def apply_style_config(
                 fig._curve_names_visible = visible
             except Exception as e:
                 print(f"Warning: Could not restore curve names visibility: {e}")
+
+        # Restore rotation angle
+        if "rotation_angle" in cfg:
+            try:
+                ax._rotation_angle = int(cfg["rotation_angle"])
+            except Exception as e:
+                print(f"Warning: Could not restore rotation angle: {e}")
 
         # Re-run label placement with current mode (no mode changes via Styles)
         update_labels_func(ax, y_data_list, label_text_objects, args.stack)

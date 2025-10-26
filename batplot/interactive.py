@@ -91,6 +91,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
     # Provide a consistent interface for accessing CIF state
     _bp = type('CIFState', (), cif_globals)() if cif_globals else None
 
+    # Initialize rotation state (0, 90, 180, or 270 degrees)
+    if not hasattr(ax, '_rotation_angle'):
+        ax._rotation_angle = 0
+
     # REPLACED print_main_menu with column layout (now hides 'd' and 'y' in --stack)
     is_diffraction = use_Q or (not use_r and not use_E and not use_k and not use_rft)  # 2θ or Q
     def print_main_menu():
@@ -99,7 +103,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             has_cif = any(f.lower().endswith('.cif') for f in args.files)
         except Exception:
             pass
-        col1 = ["c: colors", "f: font", "l: line", "t: toggle axes", "g: size", "h: show/hide names"]
+        col1 = ["c: colors", "f: font", "l: line", "ro: rotate", "t: toggle axes", "g: size", "h: show/hide names"]
         if has_cif:
             col1.append("z: hkl")
             col1.append("j: CIF titles")
@@ -669,7 +673,8 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 "tick_direction": getattr(fig, '_tick_direction', 'out'),
                 "cif_tick_series": (list(getattr(_bp, 'cif_tick_series')) if (_bp is not None and hasattr(_bp, 'cif_tick_series')) else None),
                 "show_cif_hkl": (bool(getattr(_bp, 'show_cif_hkl')) if _bp is not None and hasattr(_bp, 'show_cif_hkl') else False),
-                "show_cif_titles": (bool(getattr(_bp, 'show_cif_titles')) if _bp is not None and hasattr(_bp, 'show_cif_titles') else True)
+                "show_cif_titles": (bool(getattr(_bp, 'show_cif_titles')) if _bp is not None and hasattr(_bp, 'show_cif_titles') else True),
+                "rotation_angle": getattr(ax, '_rotation_angle', 0)
             }
             # Line + data arrays
             for i, ln in enumerate(ax.lines):
@@ -876,6 +881,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             orig_y[:]      = [np.array(a, copy=True) for a in snap["orig_y"]]
             offsets_list[:] = list(snap["offsets"]) 
             delta = snap.get("delta", delta)
+
+            # Restore rotation angle
+            if 'rotation_angle' in snap:
+                ax._rotation_angle = snap['rotation_angle']
 
             # CIF tick sets & label visibility (write back to batplot module globals)
             if _bp is not None and snap.get("cif_tick_series") is not None and hasattr(_bp, 'cif_tick_series'):
@@ -1745,6 +1754,89 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         print(f"Error setting curve offset: {e}")
                 else:
                     print("Unknown command. Use 1-{}, a, r, d, or q".format(len(labels)))
+        elif key == 'ro':
+            # Rotate plot 90 degrees clockwise or counter-clockwise
+            print("\nRotate plot:")
+            print("  c: clockwise (90°)")
+            print("  a: anti-clockwise (-90°)")
+            print("  q: cancel")
+            
+            rot_cmd = input("Rotate> ").strip().lower()
+            
+            if rot_cmd == 'c' or rot_cmd == 'a':
+                try:
+                    push_state("rotate")
+                    
+                    # Determine rotation direction
+                    angle_delta = 90 if rot_cmd == 'c' else -90
+                    ax._rotation_angle = (ax._rotation_angle + angle_delta) % 360
+                    
+                    # Swap X and Y data for all curves
+                    for i in range(len(labels)):
+                        xdata = x_data_list[i]
+                        ydata = y_data_list[i]
+                        
+                        if rot_cmd == 'c':
+                            # Clockwise: X->Y, -Y->X
+                            new_x = -ydata
+                            new_y = xdata
+                        else:
+                            # Counter-clockwise: Y->X, -X->Y  
+                            new_x = ydata
+                            new_y = -xdata
+                        
+                        x_data_list[i] = new_x
+                        y_data_list[i] = new_y
+                        ax.lines[i].set_data(new_x, new_y)
+                        
+                        # Also update orig_y
+                        if i < len(orig_y):
+                            if rot_cmd == 'c':
+                                orig_y[i] = xdata.copy()
+                            else:
+                                orig_y[i] = -xdata.copy()
+                    
+                    # Also rotate full data
+                    for i in range(len(x_full_list)):
+                        xf = x_full_list[i]
+                        yf = raw_y_full_list[i]
+                        
+                        if rot_cmd == 'c':
+                            x_full_list[i] = -yf
+                            raw_y_full_list[i] = xf.copy()
+                        else:
+                            x_full_list[i] = yf
+                            raw_y_full_list[i] = -xf.copy()
+                    
+                    # Swap axis limits
+                    xlim = ax.get_xlim()
+                    ylim = ax.get_ylim()
+                    if rot_cmd == 'c':
+                        ax.set_xlim(-ylim[1], -ylim[0])
+                        ax.set_ylim(xlim)
+                    else:
+                        ax.set_xlim(ylim)
+                        ax.set_ylim(-xlim[1], -xlim[0])
+                    
+                    # Swap axis labels
+                    xlabel = ax.get_xlabel()
+                    ylabel = ax.get_ylabel()
+                    ax.set_xlabel(ylabel)
+                    ax.set_ylabel(xlabel)
+                    
+                    # Relimit and redraw
+                    ax.relim()
+                    ax.autoscale_view()
+                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    fig.canvas.draw()
+                    
+                    direction = "clockwise" if rot_cmd == 'c' else "anti-clockwise"
+                    print(f"Plot rotated 90° {direction}. Current rotation: {ax._rotation_angle}°")
+                    
+                except Exception as e:
+                    print(f"Error rotating plot: {e}")
+            elif rot_cmd != 'q':
+                print("Invalid choice")
         elif key == 'l':
             try:
                 while True:
