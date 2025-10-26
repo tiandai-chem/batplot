@@ -155,7 +155,9 @@ def print_style_info(
         col = ln.get_color(); lw = ln.get_linewidth(); ls = ln.get_linestyle()
         mk = ln.get_marker(); ms = ln.get_markersize(); a = ln.get_alpha()
         base_label = labels[i] if i < len(labels) else ""
-        print(f"  {i+1:02d}: label='{base_label}' color={col} lw={lw} ls={ls} marker={mk} ms={ms} alpha={a}")
+        offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
+        offset_str = f" offset={offset_val:.4g}" if offset_val != 0.0 else ""
+        print(f"  {i+1:02d}: label='{base_label}' color={col} lw={lw} ls={ls} marker={mk} ms={ms} alpha={a}{offset_str}")
     print("--- End diagnostics ---\n")
 
 
@@ -168,6 +170,7 @@ def export_style_config(
     delta: float,
     args,
     tick_state: Dict[str, bool],
+    offsets_list: List[float],
     cif_tick_series: Optional[List[tuple]] = None,
     label_text_objects: Optional[List] = None,
 ) -> None:
@@ -284,6 +287,7 @@ def export_style_config(
                     "markerfacecolor": ln.get_markerfacecolor(),
                     "markeredgecolor": ln.get_markeredgecolor(),
                     "alpha": ln.get_alpha(),
+                    "offset": offsets_list[i] if i < len(offsets_list) else 0.0,
                 }
                 for i, ln in enumerate(ax.lines)
             ],
@@ -693,6 +697,20 @@ def apply_style_config(
                     ln.set_alpha(entry["alpha"])
                 except Exception:
                     pass
+            # Restore offset if available
+            if "offset" in entry and offsets_list is not None and orig_y is not None and x_data_list is not None:
+                try:
+                    offset_val = float(entry["offset"])
+                    if idx < len(offsets_list):
+                        offsets_list[idx] = offset_val
+                        # Reapply offset to the curve
+                        if idx < len(orig_y) and idx < len(y_data_list) and idx < len(x_data_list):
+                            y_norm = orig_y[idx]
+                            y_with_offset = y_norm + offset_val
+                            y_data_list[idx] = y_with_offset
+                            ln.set_data(x_data_list[idx], y_with_offset)
+                except Exception as e:
+                    print(f"Warning: Could not restore offset for curve {idx+1}: {e}")
         # CIF tick sets (labels & colors)
         cif_cfg = cfg.get("cif_ticks", [])
         if cif_cfg and cif_tick_series is not None:

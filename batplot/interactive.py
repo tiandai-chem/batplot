@@ -491,7 +491,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
     # NEW: export current style to .bpcfg
     def export_style_config(filename):
         cts = getattr(_bp, 'cif_tick_series', None) if _bp is not None else None
-        return _bp_export_style_config(filename, fig, ax, y_data_list, labels, delta, args, tick_state, cts, label_text_objects)
+        return _bp_export_style_config(filename, fig, ax, y_data_list, labels, delta, args, tick_state, offsets_list, cts, label_text_objects)
 
     # NEW: apply imported style config (restricted application)
     def apply_style_config(filename):
@@ -1599,38 +1599,152 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error setting Y-axis range: {e}")
         elif key == 'd':  # <-- DELTA / OFFSET HANDLER (now only reachable if not args.stack)
-            if len(labels) <= 1:
-                print("Warning: Only one curve loaded; applying an offset is not recommended.")
-            try:
-                new_delta_str = input(f"Enter new offset spacing (current={delta}): ").strip()
-                new_delta = float(new_delta_str)
-                delta = new_delta
-                offsets_list[:] = []
-                if args.stack:
-                    current_offset = 0.0
-                    for i, y_norm in enumerate(orig_y):
-                        y_with_offset = y_norm + current_offset
-                        y_data_list[i] = y_with_offset
-                        offsets_list.append(current_offset)
-                        ax.lines[i].set_data(x_data_list[i], y_with_offset)
-                        y_range = (y_norm.max() - y_norm.min()) if y_norm.size else 0.0
-                        gap = y_range + (delta * (y_range if args.autoscale else 1.0))
-                        current_offset -= gap
+            print("\nOffset adjustment menu:")
+            print("  1-{}: adjust individual curve offset".format(len(labels)))
+            print("  a: adjust total offset (baseline shift)")
+            print("  r: reset all offsets to 0")
+            print("  d: change delta spacing (original behavior)")
+            print("  q: back to main menu")
+            
+            while True:
+                offset_cmd = input("Offset> ").strip().lower()
+                
+                if offset_cmd == 'q' or offset_cmd == '':
+                    break
+                    
+                elif offset_cmd == 'r':
+                    # Reset all offsets to 0
+                    try:
+                        push_state("reset-offsets")
+                        for i in range(len(labels)):
+                            # Reset to normalized data without any offset
+                            y_norm = orig_y[i]
+                            y_data_list[i] = y_norm.copy()
+                            offsets_list[i] = 0.0
+                            ax.lines[i].set_data(x_data_list[i], y_norm)
+                        
+                        ax.relim()
+                        ax.autoscale_view(scalex=False, scaley=True)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        fig.canvas.draw()
+                        print("All offsets reset to 0")
+                    except Exception as e:
+                        print(f"Error resetting offsets: {e}")
+                    
+                elif offset_cmd == 'a':
+                    # Adjust total offset (baseline shift for all curves)
+                    try:
+                        # Calculate current average offset
+                        current_avg = sum(offsets_list) / len(offsets_list) if offsets_list else 0.0
+                        total_offset_input = input("Enter total offset value (current avg: {:.4g}): ".format(current_avg)).strip()
+                        if not total_offset_input:
+                            print("Canceled.")
+                            continue
+                        
+                        total_offset = float(total_offset_input)
+                        push_state("total-offset")
+                        
+                        # Add total offset to all curves
+                        for i in range(len(labels)):
+                            y_norm = orig_y[i]
+                            current_individual = offsets_list[i]
+                            new_offset = current_individual + total_offset
+                            offsets_list[i] = new_offset
+                            y_with_offset = y_norm + new_offset
+                            y_data_list[i] = y_with_offset
+                            ax.lines[i].set_data(x_data_list[i], y_with_offset)
+                        
+                        ax.relim()
+                        ax.autoscale_view(scalex=False, scaley=True)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        fig.canvas.draw()
+                        print("Total offset of {:.4g} applied to all curves".format(total_offset))
+                        
+                    except ValueError:
+                        print("Invalid offset value")
+                    except Exception as e:
+                        print(f"Error applying total offset: {e}")
+                        
+                elif offset_cmd == 'd':
+                    # Original delta spacing behavior
+                    if len(labels) <= 1:
+                        print("Warning: Only one curve loaded; applying an offset is not recommended.")
+                    try:
+                        new_delta_str = input(f"Enter new offset spacing (current={delta}): ").strip()
+                        if not new_delta_str:
+                            print("Canceled.")
+                            continue
+                        new_delta = float(new_delta_str)
+                        push_state("delta-spacing")
+                        delta = new_delta
+                        offsets_list[:] = []
+                        if args.stack:
+                            current_offset = 0.0
+                            for i, y_norm in enumerate(orig_y):
+                                y_with_offset = y_norm + current_offset
+                                y_data_list[i] = y_with_offset
+                                offsets_list.append(current_offset)
+                                ax.lines[i].set_data(x_data_list[i], y_with_offset)
+                                y_range = (y_norm.max() - y_norm.min()) if y_norm.size else 0.0
+                                gap = y_range + (delta * (y_range if args.autoscale else 1.0))
+                                current_offset -= gap
+                        else:
+                            current_offset = 0.0
+                            for i, y_norm in enumerate(orig_y):
+                                y_with_offset = y_norm + current_offset
+                                y_data_list[i] = y_with_offset
+                                offsets_list.append(current_offset)
+                                ax.lines[i].set_data(x_data_list[i], y_with_offset)
+                                increment = (y_norm.max() - y_norm.min()) * delta if (args.autoscale and y_norm.size) else delta
+                                current_offset += increment
+                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
+                        fig.canvas.draw()
+                        print(f"Offsets updated with delta={delta}")
+                    except ValueError:
+                        print("Invalid delta value")
+                    except Exception as e:
+                        print(f"Error updating offsets: {e}")
+                        
+                elif offset_cmd.isdigit():
+                    # Adjust individual curve offset
+                    try:
+                        curve_num = int(offset_cmd)
+                        if curve_num < 1 or curve_num > len(labels):
+                            print("Invalid curve number (1-{})".format(len(labels)))
+                            continue
+                        
+                        idx = curve_num - 1
+                        current_offset = offsets_list[idx]
+                        
+                        individual_offset_input = input("Enter offset for curve {} (current: {:.4g}): ".format(
+                            curve_num, current_offset)).strip()
+                        if not individual_offset_input:
+                            print("Canceled.")
+                            continue
+                        
+                        individual_offset = float(individual_offset_input)
+                        push_state("curve-{}-offset".format(curve_num))
+                        
+                        # Apply individual offset to this curve
+                        y_norm = orig_y[idx]
+                        offsets_list[idx] = individual_offset
+                        y_with_offset = y_norm + individual_offset
+                        y_data_list[idx] = y_with_offset
+                        ax.lines[idx].set_data(x_data_list[idx], y_with_offset)
+                        
+                        ax.relim()
+                        ax.autoscale_view(scalex=False, scaley=True)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        fig.canvas.draw()
+                        print("Curve {} offset set to: {:.4g}".format(curve_num, individual_offset))
+                        
+                    except ValueError:
+                        print("Invalid offset value")
+                    except Exception as e:
+                        print(f"Error setting curve offset: {e}")
                 else:
-                    current_offset = 0.0
-                    for i, y_norm in enumerate(orig_y):
-                        y_with_offset = y_norm + current_offset
-                        y_data_list[i] = y_with_offset
-                        offsets_list.append(current_offset)
-                        ax.lines[i].set_data(x_data_list[i], y_with_offset)
-                        increment = (y_norm.max() - y_norm.min()) * delta if (args.autoscale and y_norm.size) else delta
-                        current_offset += increment
-                update_labels(ax, y_data_list, label_text_objects, args.stack)
-                ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
-                fig.canvas.draw()
-                print(f"Offsets updated with delta={delta}")
-            except Exception as e:
-                print(f"Error updating offsets: {e}")
+                    print("Unknown command. Use 1-{}, a, r, d, or q".format(len(labels)))
         elif key == 'l':
             try:
                 while True:
