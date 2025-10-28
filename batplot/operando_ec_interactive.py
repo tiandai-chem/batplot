@@ -192,8 +192,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             col3 = [
                 "et: time range",
                 "ey: y axis type",
-                "er: rename",
-                
+                "er: rename"
             ]
             col4 = [
                 "n: crosshair",
@@ -435,7 +434,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
     if not getattr(ec_ax, '_ec_gap_adjusted', False):
         try:
             # Decrease gap more aggressively and allow a smaller minimum
-            ec_gap_in = max(0.02, ec_gap_in * 0.2)
+            # Increase the multiplier from 0.2 to 0.35 for more spacing
+            ec_gap_in = max(0.05, ec_gap_in * 0.35)
             setattr(ec_ax, '_fixed_ec_gap_in', ec_gap_in)
             setattr(ec_ax, '_ec_gap_adjusted', True)
             _apply_group_layout_inches(fig, ax, cbar.ax, ec_ax, ax_w_in, ax_h_in, cb_w_in, cb_gap_in, ec_gap_in, ec_w_in)
@@ -572,6 +572,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             # Visibility states
             cb_visible = bool(cbar.ax.get_visible())
             ec_visible = bool(ec_ax.get_visible()) if ec_ax is not None else None
+            # Label pads (save current labelpad values to restore later)
+            op_labelpads = {
+                'x': getattr(ax.xaxis, 'labelpad', None),
+                'y': getattr(ax.yaxis, 'labelpad', None),
+            }
+            ec_labelpads = None
+            if ec_ax is not None:
+                ec_labelpads = {
+                    'x': getattr(ec_ax.xaxis, 'labelpad', None),
+                    'y': getattr(ec_ax.yaxis, 'labelpad', None),
+                }
             state_history.append({
                 'note': note,
                 'fig_size': (fig_w, fig_h),
@@ -593,6 +604,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 'tick_direction': getattr(fig, '_tick_direction', 'out'),
                 'cb_visible': cb_visible,
                 'ec_visible': ec_visible,
+                'op_labelpads': dict(op_labelpads),
+                'ec_labelpads': dict(ec_labelpads) if ec_labelpads is not None else None,
             })
             if len(state_history) > 40:
                 state_history.pop(0)
@@ -882,6 +895,25 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     ec_ax.set_visible(bool(ec_vis))
             except Exception:
                 pass
+            # Restore label pads (critical for maintaining title positions)
+            try:
+                op_pads = snap.get('op_labelpads', {})
+                if op_pads:
+                    if op_pads.get('x') is not None:
+                        ax.xaxis.labelpad = op_pads['x']
+                    if op_pads.get('y') is not None:
+                        ax.yaxis.labelpad = op_pads['y']
+            except Exception:
+                pass
+            try:
+                ec_pads = snap.get('ec_labelpads', {})
+                if ec_pads and ec_ax is not None:
+                    if ec_pads.get('x') is not None:
+                        ec_ax.xaxis.labelpad = ec_pads['x']
+                    if ec_pads.get('y') is not None:
+                        ec_ax.yaxis.labelpad = ec_pads['y']
+            except Exception:
+                pass
             try:
                 fig.canvas.draw()
             except Exception:
@@ -920,6 +952,10 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                                                    color='0.35', ls='--', lw=0.8, alpha=0.85, zorder=9999))
                 hline = fig.add_artist(plt.Line2D([0, 1], [0.5, 0.5], transform=fig.transFigure,
                                                    color='0.35', ls='--', lw=0.8, alpha=0.85, zorder=9999))
+                # Create text annotations for coordinates
+                coord_text = fig.text(0.02, 0.98, '', transform=fig.transFigure, 
+                                     verticalalignment='top', fontsize=9,
+                                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
             except Exception:
                 return
             def on_move(ev):
@@ -933,12 +969,41 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         fig_y = ev.y / fig.bbox.height
                         vline.set_xdata([fig_x, fig_x])
                         hline.set_ydata([fig_y, fig_y])
+                        
+                        # Get data coordinates for both axes
+                        texts = []
+                        if ev.inaxes == ax:
+                            texts.append(f"Operando: x={ev.xdata:.4f}, y={ev.ydata:.4f}")
+                        elif ev.inaxes == ec_ax:
+                            texts.append(f"EC: x={ev.xdata:.4f}, y={ev.ydata:.4f}")
+                        
+                        # Also get coordinates from the other axis if mouse position overlaps
+                        try:
+                            # Transform mouse position to data coords in both axes
+                            if ev.inaxes == ax and ec_ax is not None:
+                                # Try to get EC coordinates at the same figure position
+                                ec_point = ec_ax.transData.inverted().transform((ev.x, ev.y))
+                                xlim = ec_ax.get_xlim()
+                                ylim = ec_ax.get_ylim()
+                                if xlim[0] <= ec_point[0] <= xlim[1] and ylim[0] <= ec_point[1] <= ylim[1]:
+                                    texts.append(f"EC: x={ec_point[0]:.4f}, y={ec_point[1]:.4f}")
+                            elif ev.inaxes == ec_ax:
+                                # Try to get operando coordinates at the same figure position
+                                op_point = ax.transData.inverted().transform((ev.x, ev.y))
+                                xlim = ax.get_xlim()
+                                ylim = ax.get_ylim()
+                                if xlim[0] <= op_point[0] <= xlim[1] and ylim[0] <= op_point[1] <= ylim[1]:
+                                    texts.insert(0, f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f}")
+                        except Exception:
+                            pass
+                        
+                        coord_text.set_text('\n'.join(texts))
                     
                     fig.canvas.draw_idle()
                 except Exception:
                     pass
             cid = fig.canvas.mpl_connect('motion_notify_event', on_move)
-            cross.update({'active': True, 'vline': vline, 'hline': hline, 'cid': cid})
+            cross.update({'active': True, 'vline': vline, 'hline': hline, 'coord_text': coord_text, 'cid': cid})
             print("Crosshair ON. Move mouse over either pane. Press 'n' again to turn off.")
         else:
             try:
@@ -946,12 +1011,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     fig.canvas.mpl_disconnect(cross['cid'])
             except Exception:
                 pass
-            for k in ('vline', 'hline'):
+            for k in ('vline', 'hline', 'coord_text'):
                 art = cross.get(k)
                 if art is not None:
                     try: art.remove()
                     except Exception: pass
-            cross.update({'active': False, 'vline': None, 'hline': None, 'cid': None})
+            cross.update({'active': False, 'vline': None, 'hline': None, 'coord_text': None, 'cid': None})
             try:
                 fig.canvas.draw_idle()
             except Exception:
@@ -2207,14 +2272,24 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     cb_visible = bool(cbar.ax.get_visible())
                     ec_visible = bool(ec_ax.get_visible()) if ec_ax is not None else None
                     
+                    # Capture labelpad values (for title positioning)
+                    op_labelpads = {
+                        'x': getattr(ax.xaxis, 'labelpad', None),
+                        'y': getattr(ax.yaxis, 'labelpad', None),
+                    }
+                    ec_labelpads = {
+                        'x': getattr(ec_ax.xaxis, 'labelpad', None),
+                        'y': getattr(ec_ax.yaxis, 'labelpad', None),
+                    }
+                    
                     if choice == 'ps':
                         cfg = {
                             'kind': 'operando_ec_style',
                             'version': 2,
                             'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
-                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range, 'labelpads': op_labelpads},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible, 'labelpads': ec_labelpads},
                             'font': {'family': fam, 'size': fsize},
                         }
                         default_ext = '.bps'
@@ -2224,8 +2299,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             'version': 2,
                             'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
-                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range},
-                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible},
+                            'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range, 'labelpads': op_labelpads},
+                            'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible, 'labelpads': ec_labelpads},
                             'font': {'family': fam, 'size': fsize},
                             'axes_geometry': _get_geometry_snapshot(ax, ec_ax),
                         }
@@ -2628,6 +2703,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             current_mA = getattr(ec_ax, '_ec_current_mA', None)
                             voltage_v = getattr(ec_ax, '_ec_voltage_v', None)
                             
+                            if current_mA is None:
+                                print("Error: Current data is required for ion counting but is not available in the .mpt file.")
+                                print("The .mpt file must contain the '<I>/mA' column to use this feature.")
+                                print_menu()
+                                continue
+                            
                             if time_h is not None and current_mA is not None:
                                 t = np.asarray(time_h, float)
                                 i_mA = np.asarray(current_mA, float)
@@ -2715,6 +2796,29 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             ec_ax.set_visible(bool(ec_visible))
                     except Exception:
                         pass
+                
+                # Apply labelpads (title positioning)
+                if version >= 2:
+                    try:
+                        op_pads = op.get('labelpads', {})
+                        if op_pads:
+                            if op_pads.get('x') is not None:
+                                ax.xaxis.labelpad = op_pads['x']
+                            if op_pads.get('y') is not None:
+                                ax.yaxis.labelpad = op_pads['y']
+                    except Exception as e:
+                        print(f"Warning: Could not apply operando labelpads: {e}")
+                    
+                    try:
+                        ec_cfg = cfg.get('ec', {})
+                        ec_pads = ec_cfg.get('labelpads', {})
+                        if ec_pads:
+                            if ec_pads.get('x') is not None:
+                                ec_ax.xaxis.labelpad = ec_pads['x']
+                            if ec_pads.get('y') is not None:
+                                ec_ax.yaxis.labelpad = ec_pads['y']
+                    except Exception as e:
+                        print(f"Warning: Could not apply EC labelpads: {e}")
                 
                 # Final redraw
                 try:
@@ -2983,301 +3087,309 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 voltage_v = getattr(ec_ax, '_ec_voltage_v', None)
                 current_mA = getattr(ec_ax, '_ec_current_mA', None)
                 ln = getattr(ec_ax, '_ec_line', None)
-                if time_h is None or current_mA is None or ln is None:
+                if time_h is None or ln is None:
                     print("EC data not available for ion calculation.")
                     print_menu(); continue
-                sub = input("ey submenu: n=ions, t=time, q=back: ").strip().lower()
-                if not sub or sub == 'q':
+                if current_mA is None:
+                    print("Error: Current data is required for ion counting but is not available in the .mpt file.")
+                    print("The .mpt file must contain the '<I>/mA' column to use this feature.")
                     print_menu(); continue
-                if sub == 'n':
-                    # Get or update parameters; allow reuse of previous values
-                    params = getattr(ec_ax, '_ion_params', {"mass_mg": None, "cap_per_ion_mAh_g": None, "start_ions": None, "material": "cathode"})
-                    mass_mg = params.get('mass_mg')
-                    cap_per_ion = params.get('cap_per_ion_mAh_g')
-                    start_ions = params.get('start_ions')
-                    material = params.get('material', 'cathode')
-                    need_input = (mass_mg is None or cap_per_ion is None or start_ions is None)
-                    if need_input:
-                        prompt = "Enter mass(mg), capacity-per-ion(mAh g⁻¹), start-ions (e.g. 4.5 26.8 0), q=cancel: "
-                    else:
-                        prompt = f"Enter mass,cap-per-ion,start-ions (blank=reuse {mass_mg} {cap_per_ion} {start_ions}; q=cancel): "
-                    s = input(prompt).strip()
-                    if not s:
+                while True:
+                    sub = input("ey submenu: n=ions, t=time, q=back: ").strip().lower()
+                    if not sub:
+                        continue
+                    if sub == 'q':
+                        break
+                    if sub == 'n':
+                        # Get or update parameters; allow reuse of previous values
+                        params = getattr(ec_ax, '_ion_params', {"mass_mg": None, "cap_per_ion_mAh_g": None, "start_ions": None, "material": "cathode"})
+                        mass_mg = params.get('mass_mg')
+                        cap_per_ion = params.get('cap_per_ion_mAh_g')
+                        start_ions = params.get('start_ions')
+                        material = params.get('material', 'cathode')
+                        need_input = (mass_mg is None or cap_per_ion is None or start_ions is None)
                         if need_input:
-                            print_menu(); continue
-                        # reuse previous values
-                    elif s.lower() == 'q':
-                        print_menu(); continue
-                    else:
-                        try:
-                            vals = list(map(float, s.split()))
-                            if len(vals) != 3:
-                                raise ValueError()
-                            mass_mg, cap_per_ion, start_ions = vals
-                        except Exception:
-                            print("Bad input. Expect three numbers: mass, capacity-per-ion, start-ions.")
-                            print_menu(); continue
-                        if material is None:
-                            material = 'cathode'
-                        ec_ax._ion_params = {"mass_mg": mass_mg, "cap_per_ion_mAh_g": cap_per_ion, "start_ions": start_ions, "material": material}
-                    _snapshot("ey->ions")
-                    import numpy as np
-                    t = np.asarray(time_h, float)
-                    i_mA = np.asarray(current_mA, float)
-                    v = np.asarray(voltage_v, float)
-                    # Cumulative trapezoidal integration for capacity (mAh)
-                    dt = np.diff(t)
-                    cap_increments = np.empty_like(t)
-                    cap_increments[0] = 0.0
-                    if t.size > 1:
-                        cap_increments[1:] = 0.5 * (i_mA[:-1] + i_mA[1:]) * dt
-                    cap_mAh = np.cumsum(cap_increments)
-                    mass_g = float(mass_mg) / 1000.0
-                    with np.errstate(divide='ignore', invalid='ignore'):
-                        cap_mAh_g = np.where(mass_g>0, cap_mAh / mass_g, np.nan)
-                        ions_delta = np.where(cap_per_ion>0, cap_mAh_g / float(cap_per_ion), np.nan)
-                    ions_abs = float(start_ions) + ions_delta
-                    # Segment by charge/discharge: boundaries where sign changes (ignore tiny currents)
-                    sgn = np.sign(i_mA)
-                    eps = 1e-9
-                    sgn[np.isclose(i_mA, 0.0, atol=eps)] = 0.0
-                    # propagate zeros to last nonzero for segmentation logic
-                    last = 0.0
-                    seg_bounds = [0]
-                    for k in range(1, len(sgn)):
-                        cur = sgn[k] if sgn[k] != 0 else last
-                        prev = sgn[k-1] if sgn[k-1] != 0 else last
-                        if k == 1:
-                            last = prev
-                        if cur != prev:
-                            seg_bounds.append(k)
-                        last = cur
-                    seg_bounds.append(len(sgn)-1)
-                    # For cathode materials, ions should decrease during charge (voltage rising)
-                    try:
-                        if material and str(material).lower().startswith('cat') and len(seg_bounds) > 1:
-                            a0 = seg_bounds[0]
-                            b0 = seg_bounds[1]
-                            if b0 > a0:
-                                dv = float(v[b0]) - float(v[a0])
-                                dt_seg = float(t[b0]) - float(t[a0])
-                                if dt_seg > 0 and np.isfinite(dv):
-                                    slope = dv / dt_seg  # dV/dt
-                                    # Expected ions change sign for cathode: -sign(dV/dt)
-                                    expected = -np.sign(slope) if slope != 0 else 0.0
-                                    actual = np.sign(float(ions_abs[b0]) - float(ions_abs[a0]))
-                                    if expected != 0 and actual != 0 and actual != expected:
-                                        # Flip ions direction globally
-                                        ions_abs = float(start_ions) - ions_delta
-                                        setattr(ec_ax, '_ion_inverted', True)
-                                        # Quietly invert without verbose console output
-                                    else:
-                                        setattr(ec_ax, '_ion_inverted', False)
-                    except Exception:
-                        pass
-                    # Keep curve unchanged; only change y-axis labeling to ions(t)
-                    # Clear previous annotations and guides
-                    for a in getattr(ec_ax, '_ion_annots', []):
-                        try: a.remove()
-                        except Exception: pass
-                    ec_ax._ion_annots = []
-                    for gl in getattr(ec_ax, '_ion_guides', []):
-                        try: gl.remove()
-                        except Exception: pass
-                    ec_ax._ion_guides = []
-                    # Persist ions for later reuse (e.g., when Y-range changes)
-                    try:
-                        setattr(ec_ax, '_ions_abs', np.asarray(ions_abs, float))
-                    except Exception:
-                        pass
-                    # Save current time-mode ylim once, to restore on exit
-                    try:
-                        if getattr(ec_ax, '_ec_y_mode', 'time') != 'ions' and not hasattr(ec_ax, '_saved_time_ylim'):
-                            ec_ax._saved_time_ylim = ec_ax.get_ylim()
-                    except Exception:
-                        pass
-                    # Install ions formatter for Y axis (time -> ions)
-                    # Determine a "nice" rounding step based on visible ions range
-                    try:
-                        y0, y1 = ec_ax.get_ylim()
-                    except Exception:
-                        y0, y1 = (t[0], t[-1])
-                    ions_y0 = float(np.interp(y0, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
-                    ions_y1 = float(np.interp(y1, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
-                    rng = abs(ions_y1 - ions_y0) if np.isfinite(ions_y0) and np.isfinite(ions_y1) else (float(np.nanmax(ions_abs)) - float(np.nanmin(ions_abs)))
-                    def _nice_step(r, approx=6):
-                        if not np.isfinite(r) or r <= 0:
-                            return 1.0
-                        raw = r / max(1, approx)
-                        exp = np.floor(np.log10(raw))
-                        base = raw / (10**exp)
-                        if base < 1.5:
-                            step = 1.0
-                        elif base < 3.5:
-                            step = 2.0
-                        elif base < 7.5:
-                            step = 5.0
+                            prompt = "Enter mass(mg), capacity-per-ion(mAh g⁻¹), start-ions (e.g. 4.5 26.8 0), q=cancel: "
                         else:
-                            step = 10.0
-                        return step * (10**exp)
-                    step = _nice_step(rng)
-                    def _ions_format(y, pos):
-                        try:
-                            val = float(np.interp(y, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
-                            if step > 0:
-                                val = round(val / step) * step
-                            # Trim trailing zeros nicely
-                            s = ("%f" % val).rstrip('0').rstrip('.')
-                            return s
-                        except Exception:
-                            return ""
-                    # Save previous formatter once
-                    if not hasattr(ec_ax, '_prev_yformatter'):
-                        try:
-                            ec_ax._prev_yformatter = ec_ax.yaxis.get_major_formatter()
-                        except Exception:
-                            ec_ax._prev_yformatter = None
-                    ec_ax.yaxis.set_major_formatter(FuncFormatter(_ions_format))
-                    # Save previous locator once
-                    if not hasattr(ec_ax, '_prev_ylocator'):
-                        try:
-                            ec_ax._prev_ylocator = ec_ax.yaxis.get_major_locator()
-                        except Exception:
-                            ec_ax._prev_ylocator = None
-                    # Apply 1-2-5 major locator for pleasant tick spacing
-                    try:
-                        ec_ax.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1,2,5], min_n_ticks=4))
-                    except Exception:
-                        pass
-                    # Set default ions label or custom override
-                    try:
-                        label = 'Number of ions'
-                        if hasattr(ec_ax, '_custom_labels') and ec_ax._custom_labels.get('y_ions'):
-                            label = ec_ax._custom_labels['y_ions']
-                        ec_ax.set_ylabel(label)
-                    except Exception:
-                        pass
-                    try:
-                        ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
-                    except Exception:
-                        pass
-                    # Annotate and mark end of each non-empty segment
-                    def _fmt2(x: float) -> str:
-                        s = ("%0.2f" % float(x)).rstrip('0').rstrip('.')
-                        return s if s else "0"
-                    # Expand EC x-range to the right to make room for right-side labels
-                    try:
-                        x0, x1 = ec_ax.get_xlim()
-                        xr = (x1 - x0) if x1 > x0 else 0.0
-                        if xr > 0 and not getattr(ec_ax, '_ions_xlim_expanded', False):
-                            # Save previous once per ions session and expand once
-                            setattr(ec_ax, '_prev_ec_xlim', (x0, x1))
-                            ec_ax.set_xlim(x0, x1 + 0.08 * xr)
-                            setattr(ec_ax, '_ions_xlim_expanded', True)
-                    except Exception:
-                        pass
-                    # Recompute after potential xlim expansion
-                    try:
-                        x0, x1 = ec_ax.get_xlim()
-                        xr = (x1 - x0) if x1 > x0 else 0.0
-                        x_right_inset = x1 - 0.02 * xr if xr > 0 else x1
-                    except Exception:
-                        x_right_inset = None
-                    for si in range(len(seg_bounds)-1):
-                        a = seg_bounds[si]
-                        b = seg_bounds[si+1]
-                        if b >= a:
-                            end_i = float(ions_abs[b])
-                            end_t = float(t[b])
-                            end_v = float(v[b])
-                            # Light dashed guide line at segment end (horizontal at time coordinate)
-                            try:
-                                guide = ec_ax.axhline(y=end_t, color='0.7', linestyle='--', linewidth=0.8, alpha=0.5, zorder=0)
-                                ec_ax._ion_guides.append(guide)
-                            except Exception:
-                                pass
-                            # Text annotation slightly offset from the curve, with at most 2 decimals
-                            try:
-                                # Place all tags at the right edge inside the frame and above the dashed line
-                                xi = x_right_inset if x_right_inset is not None else end_v
-                                txt = ec_ax.annotate(_fmt2(end_i), xy=(xi, end_t), xytext=(0, 4), textcoords='offset points',
-                                                     ha='right', va='bottom', fontsize=9,
-                                                     bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='0.7', alpha=0.8))
-                                ec_ax._ion_annots.append(txt)
-                            except Exception:
-                                pass
-                            # No marker plotted to avoid creating new line artists
-                    # Do not alter existing EC Y-limits here; keep user choice intact
-                    ec_ax._ec_y_mode = 'ions'
-                elif sub == 't':
-                    _snapshot("ey->time")
-                    # Revert to time view
-                    for a in getattr(ec_ax, '_ion_annots', []):
-                        try: a.remove()
-                        except Exception: pass
-                    ec_ax._ion_annots = []
-                    for gl in getattr(ec_ax, '_ion_guides', []):
-                        try: gl.remove()
-                        except Exception: pass
-                    ec_ax._ion_guides = []
-                    # Clear cached ions data
-                    try:
-                        setattr(ec_ax, '_ions_abs', None)
-                    except Exception:
-                        pass
-                    # No extra markers to clear
-                    # Restore previous y-axis formatter and label
-                    prev_fmt = getattr(ec_ax, '_prev_yformatter', None)
-                    try:
-                        if prev_fmt is not None:
-                            ec_ax.yaxis.set_major_formatter(prev_fmt)
+                            prompt = f"Enter mass,cap-per-ion,start-ions (blank=reuse {mass_mg} {cap_per_ion} {start_ions}; q=cancel): "
+                        s = input(prompt).strip()
+                        if not s:
+                            if need_input:
+                                continue
+                            # reuse previous values
+                        elif s.lower() == 'q':
+                            continue
                         else:
-                            from matplotlib.ticker import ScalarFormatter
-                            ec_ax.yaxis.set_major_formatter(ScalarFormatter())
-                        # Restore previous locator if available
-                        prev_loc = getattr(ec_ax, '_prev_ylocator', None)
-                        if prev_loc is not None:
-                            ec_ax.yaxis.set_major_locator(prev_loc)
-                    except Exception:
-                        pass
-                    # Set default time label or custom override
-                    try:
-                        label = 'Time (h)'
-                        if hasattr(ec_ax, '_custom_labels') and ec_ax._custom_labels.get('y_time'):
-                            label = ec_ax._custom_labels['y_time']
-                        ec_ax.set_ylabel(label)
-                    except Exception:
-                        pass
-                    try:
-                        ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
-                    except Exception:
-                        pass
-                    # Restore EC x-limits if previously expanded for ions labels
-                    prev_xlim = getattr(ec_ax, '_prev_ec_xlim', None)
-                    if prev_xlim and isinstance(prev_xlim, tuple) and len(prev_xlim) == 2:
+                            try:
+                                vals = list(map(float, s.split()))
+                                if len(vals) != 3:
+                                    raise ValueError()
+                                mass_mg, cap_per_ion, start_ions = vals
+                            except Exception:
+                                print("Bad input. Expect three numbers: mass, capacity-per-ion, start-ions.")
+                                continue
+                            if material is None:
+                                material = 'cathode'
+                            ec_ax._ion_params = {"mass_mg": mass_mg, "cap_per_ion_mAh_g": cap_per_ion, "start_ions": start_ions, "material": material}
+                        _snapshot("ey->ions")
+                        import numpy as np
+                        t = np.asarray(time_h, float)
+                        i_mA = np.asarray(current_mA, float)
+                        v = np.asarray(voltage_v, float)
+                        # Cumulative trapezoidal integration for capacity (mAh)
+                        dt = np.diff(t)
+                        cap_increments = np.empty_like(t)
+                        cap_increments[0] = 0.0
+                        if t.size > 1:
+                            cap_increments[1:] = 0.5 * (i_mA[:-1] + i_mA[1:]) * dt
+                        cap_mAh = np.cumsum(cap_increments)
+                        mass_g = float(mass_mg) / 1000.0
+                        with np.errstate(divide='ignore', invalid='ignore'):
+                            cap_mAh_g = np.where(mass_g>0, cap_mAh / mass_g, np.nan)
+                            ions_delta = np.where(cap_per_ion>0, cap_mAh_g / float(cap_per_ion), np.nan)
+                        ions_abs = float(start_ions) + ions_delta
+                        # Segment by charge/discharge: boundaries where sign changes (ignore tiny currents)
+                        sgn = np.sign(i_mA)
+                        eps = 1e-9
+                        sgn[np.isclose(i_mA, 0.0, atol=eps)] = 0.0
+                        # propagate zeros to last nonzero for segmentation logic
+                        last = 0.0
+                        seg_bounds = [0]
+                        for k in range(1, len(sgn)):
+                            cur = sgn[k] if sgn[k] != 0 else last
+                            prev = sgn[k-1] if sgn[k-1] != 0 else last
+                            if k == 1:
+                                last = prev
+                            if cur != prev:
+                                seg_bounds.append(k)
+                            last = cur
+                        seg_bounds.append(len(sgn)-1)
+                        # For cathode materials, ions should decrease during charge (voltage rising)
                         try:
-                            ec_ax.set_xlim(*prev_xlim)
+                            if material and str(material).lower().startswith('cat') and len(seg_bounds) > 1:
+                                a0 = seg_bounds[0]
+                                b0 = seg_bounds[1]
+                                if b0 > a0:
+                                    dv = float(v[b0]) - float(v[a0])
+                                    dt_seg = float(t[b0]) - float(t[a0])
+                                    if dt_seg > 0 and np.isfinite(dv):
+                                        slope = dv / dt_seg  # dV/dt
+                                        # Expected ions change sign for cathode: -sign(dV/dt)
+                                        expected = -np.sign(slope) if slope != 0 else 0.0
+                                        actual = np.sign(float(ions_abs[b0]) - float(ions_abs[a0]))
+                                        if expected != 0 and actual != 0 and actual != expected:
+                                            # Flip ions direction globally
+                                            ions_abs = float(start_ions) - ions_delta
+                                            setattr(ec_ax, '_ion_inverted', True)
+                                            # Quietly invert without verbose console output
+                                        else:
+                                            setattr(ec_ax, '_ion_inverted', False)
                         except Exception:
                             pass
-                    try:
-                        setattr(ec_ax, '_prev_ec_xlim', None)
-                        setattr(ec_ax, '_ions_xlim_expanded', False)
-                    except Exception:
-                        pass
-                    # Restore prior time-mode ylim if saved; else leave as-is
-                    prev_time_ylim = getattr(ec_ax, '_saved_time_ylim', None)
-                    if prev_time_ylim and isinstance(prev_time_ylim, (list, tuple)) and len(prev_time_ylim)==2:
+                        # Keep curve unchanged; only change y-axis labeling to ions(t)
+                        # Clear previous annotations and guides
+                        for a in getattr(ec_ax, '_ion_annots', []):
+                            try: a.remove()
+                            except Exception: pass
+                        ec_ax._ion_annots = []
+                        for gl in getattr(ec_ax, '_ion_guides', []):
+                            try: gl.remove()
+                            except Exception: pass
+                        ec_ax._ion_guides = []
+                        # Persist ions for later reuse (e.g., when Y-range changes)
                         try:
-                            ec_ax.set_ylim(*prev_time_ylim)
+                            setattr(ec_ax, '_ions_abs', np.asarray(ions_abs, float))
                         except Exception:
                             pass
-                    ec_ax._ec_y_mode = 'time'
-                try:
-                    fig.canvas.draw()
-                except Exception:
-                    fig.canvas.draw_idle()
+                        # Save current time-mode ylim once, to restore on exit
+                        try:
+                            if getattr(ec_ax, '_ec_y_mode', 'time') != 'ions' and not hasattr(ec_ax, '_saved_time_ylim'):
+                                ec_ax._saved_time_ylim = ec_ax.get_ylim()
+                        except Exception:
+                            pass
+                        # Install ions formatter for Y axis (time -> ions)
+                        # Determine a "nice" rounding step based on visible ions range
+                        try:
+                            y0, y1 = ec_ax.get_ylim()
+                        except Exception:
+                            y0, y1 = (t[0], t[-1])
+                        ions_y0 = float(np.interp(y0, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                        ions_y1 = float(np.interp(y1, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                        rng = abs(ions_y1 - ions_y0) if np.isfinite(ions_y0) and np.isfinite(ions_y1) else (float(np.nanmax(ions_abs)) - float(np.nanmin(ions_abs)))
+                        def _nice_step(r, approx=6):
+                            if not np.isfinite(r) or r <= 0:
+                                return 1.0
+                            raw = r / max(1, approx)
+                            exp = np.floor(np.log10(raw))
+                            base = raw / (10**exp)
+                            if base < 1.5:
+                                step = 1.0
+                            elif base < 3.5:
+                                step = 2.0
+                            elif base < 7.5:
+                                step = 5.0
+                            else:
+                                step = 10.0
+                            return step * (10**exp)
+                        step = _nice_step(rng)
+                        def _ions_format(y, pos):
+                            try:
+                                val = float(np.interp(y, t, ions_abs, left=ions_abs[0], right=ions_abs[-1]))
+                                if step > 0:
+                                    val = round(val / step) * step
+                                # Trim trailing zeros nicely
+                                s = ("%f" % val).rstrip('0').rstrip('.')
+                                return s
+                            except Exception:
+                                return ""
+                        # Save previous formatter once
+                        if not hasattr(ec_ax, '_prev_yformatter'):
+                            try:
+                                ec_ax._prev_yformatter = ec_ax.yaxis.get_major_formatter()
+                            except Exception:
+                                ec_ax._prev_yformatter = None
+                        ec_ax.yaxis.set_major_formatter(FuncFormatter(_ions_format))
+                        # Save previous locator once
+                        if not hasattr(ec_ax, '_prev_ylocator'):
+                            try:
+                                ec_ax._prev_ylocator = ec_ax.yaxis.get_major_locator()
+                            except Exception:
+                                ec_ax._prev_ylocator = None
+                        # Apply 1-2-5 major locator for pleasant tick spacing
+                        try:
+                            ec_ax.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1,2,5], min_n_ticks=4))
+                        except Exception:
+                            pass
+                        # Set default ions label or custom override
+                        try:
+                            label = 'Number of ions'
+                            if hasattr(ec_ax, '_custom_labels') and ec_ax._custom_labels.get('y_ions'):
+                                label = ec_ax._custom_labels['y_ions']
+                            ec_ax.set_ylabel(label)
+                        except Exception:
+                            pass
+                        try:
+                            ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
+                        except Exception:
+                            pass
+                        # Annotate and mark end of each non-empty segment
+                        def _fmt2(x: float) -> str:
+                            s = ("%0.2f" % float(x)).rstrip('0').rstrip('.')
+                            return s if s else "0"
+                        # Expand EC x-range to the right to make room for right-side labels
+                        try:
+                            x0, x1 = ec_ax.get_xlim()
+                            xr = (x1 - x0) if x1 > x0 else 0.0
+                            if xr > 0 and not getattr(ec_ax, '_ions_xlim_expanded', False):
+                                # Save previous once per ions session and expand once
+                                setattr(ec_ax, '_prev_ec_xlim', (x0, x1))
+                                ec_ax.set_xlim(x0, x1 + 0.08 * xr)
+                                setattr(ec_ax, '_ions_xlim_expanded', True)
+                        except Exception:
+                            pass
+                        # Recompute after potential xlim expansion
+                        try:
+                            x0, x1 = ec_ax.get_xlim()
+                            xr = (x1 - x0) if x1 > x0 else 0.0
+                            x_right_inset = x1 - 0.02 * xr if xr > 0 else x1
+                        except Exception:
+                            x_right_inset = None
+                        for si in range(len(seg_bounds)-1):
+                            a = seg_bounds[si]
+                            b = seg_bounds[si+1]
+                            if b >= a:
+                                end_i = float(ions_abs[b])
+                                end_t = float(t[b])
+                                end_v = float(v[b])
+                                # Light dashed guide line at segment end (horizontal at time coordinate)
+                                try:
+                                    guide = ec_ax.axhline(y=end_t, color='0.7', linestyle='--', linewidth=0.8, alpha=0.5, zorder=0)
+                                    ec_ax._ion_guides.append(guide)
+                                except Exception:
+                                    pass
+                                # Text annotation slightly offset from the curve, with at most 2 decimals
+                                try:
+                                    # Place all tags at the right edge inside the frame and above the dashed line
+                                    xi = x_right_inset if x_right_inset is not None else end_v
+                                    txt = ec_ax.annotate(_fmt2(end_i), xy=(xi, end_t), xytext=(0, 4), textcoords='offset points',
+                                                         ha='right', va='bottom', fontsize=9,
+                                                         bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='0.7', alpha=0.8))
+                                    ec_ax._ion_annots.append(txt)
+                                except Exception:
+                                    pass
+                                # No marker plotted to avoid creating new line artists
+                        # Do not alter existing EC Y-limits here; keep user choice intact
+                        ec_ax._ec_y_mode = 'ions'
+                    elif sub == 't':
+                        _snapshot("ey->time")
+                        # Revert to time view
+                        for a in getattr(ec_ax, '_ion_annots', []):
+                            try: a.remove()
+                            except Exception: pass
+                        ec_ax._ion_annots = []
+                        for gl in getattr(ec_ax, '_ion_guides', []):
+                            try: gl.remove()
+                            except Exception: pass
+                        ec_ax._ion_guides = []
+                        # Clear cached ions data
+                        try:
+                            setattr(ec_ax, '_ions_abs', None)
+                        except Exception:
+                            pass
+                        # No extra markers to clear
+                        # Restore previous y-axis formatter and label
+                        prev_fmt = getattr(ec_ax, '_prev_yformatter', None)
+                        try:
+                            if prev_fmt is not None:
+                                ec_ax.yaxis.set_major_formatter(prev_fmt)
+                            else:
+                                from matplotlib.ticker import ScalarFormatter
+                                ec_ax.yaxis.set_major_formatter(ScalarFormatter())
+                            # Restore previous locator if available
+                            prev_loc = getattr(ec_ax, '_prev_ylocator', None)
+                            if prev_loc is not None:
+                                ec_ax.yaxis.set_major_locator(prev_loc)
+                        except Exception:
+                            pass
+                        # Set default time label or custom override
+                        try:
+                            label = 'Time (h)'
+                            if hasattr(ec_ax, '_custom_labels') and ec_ax._custom_labels.get('y_time'):
+                                label = ec_ax._custom_labels['y_time']
+                            ec_ax.set_ylabel(label)
+                        except Exception:
+                            pass
+                        try:
+                            ec_ax.yaxis.tick_right(); ec_ax.yaxis.set_label_position('right')
+                        except Exception:
+                            pass
+                        # Restore EC x-limits if previously expanded for ions labels
+                        prev_xlim = getattr(ec_ax, '_prev_ec_xlim', None)
+                        if prev_xlim and isinstance(prev_xlim, tuple) and len(prev_xlim) == 2:
+                            try:
+                                ec_ax.set_xlim(*prev_xlim)
+                            except Exception:
+                                pass
+                        try:
+                            setattr(ec_ax, '_prev_ec_xlim', None)
+                            setattr(ec_ax, '_ions_xlim_expanded', False)
+                        except Exception:
+                            pass
+                        # Restore prior time-mode ylim if saved; else leave as-is
+                        prev_time_ylim = getattr(ec_ax, '_saved_time_ylim', None)
+                        if prev_time_ylim and isinstance(prev_time_ylim, (list, tuple)) and len(prev_time_ylim)==2:
+                            try:
+                                ec_ax.set_ylim(*prev_time_ylim)
+                            except Exception:
+                                pass
+                        ec_ax._ec_y_mode = 'time'
+                    # Draw after any submenu action
+                    try:
+                        fig.canvas.draw()
+                    except Exception:
+                        fig.canvas.draw_idle()
             except Exception as e:
-                print(f"Error computing ions: {e}")
+                print(f"Error in ey submenu: {e}")
             print_menu()
         elif cmd == 'g':
             # Preserve legacy size submenu

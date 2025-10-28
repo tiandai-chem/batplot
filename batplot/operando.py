@@ -32,6 +32,21 @@ KNOWN_DIFFRACTION_EXT = {".xy", ".xye", ".qye", ".dat"}
 _two_theta_re = re.compile(r"2[tT]heta|2th", re.IGNORECASE)
 _q_re = re.compile(r"^q$", re.IGNORECASE)
 
+def _natural_sort_key(path: Path) -> list:
+    """Generate a natural sorting key for filenames with numbers.
+    
+    Converts 'file_10.xy' to ['file_', 10, '.xy'] so numerical parts are sorted numerically.
+    This ensures file_2.xy comes before file_10.xy (natural order).
+    """
+    parts = []
+    for match in re.finditer(r'(\d+|\D+)', path.name):
+        text = match.group(0)
+        if text.isdigit():
+            parts.append(int(text))
+        else:
+            parts.append(text.lower())
+    return parts
+
 def _infer_axis_mode(args, any_qye: bool, has_unknown_ext: bool):
     # Priority: explicit --xaxis, else .qye presence (Q), else wavelength (Q), else default 2theta with warning
     # If unknown extensions are present, use "user defined" mode
@@ -83,12 +98,12 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     p = Path(folder)
     if not p.is_dir():
         raise FileNotFoundError(f"Not a directory: {folder}")
-    # First try to find known diffraction files
-    files = sorted([f for f in p.iterdir() if f.suffix.lower() in KNOWN_DIFFRACTION_EXT])
+    # First try to find known diffraction files (filter out macOS resource fork files starting with ._)
+    files = sorted([f for f in p.iterdir() if f.suffix.lower() in KNOWN_DIFFRACTION_EXT and not f.name.startswith("._")], key=_natural_sort_key)
     has_unknown_ext = False
     # If no known files found, accept any file extension (except .mpt which is for electrochemistry)
     if not files:
-        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() != ".mpt"])
+        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() != ".mpt" and not f.name.startswith("._")], key=_natural_sort_key)
         has_unknown_ext = True
         if not files:
             raise FileNotFoundError("No data files found in folder (excluding .mpt files)")
@@ -137,7 +152,8 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     Z = np.vstack(stack)  # shape (n_scans, n_x)
 
     # Detect an electrochemistry .mpt file in the same folder (if any)
-    mpt_files = sorted([f for f in p.iterdir() if f.suffix.lower() == ".mpt"])  # pick first if present
+    # Filter out macOS resource fork files (starting with ._)
+    mpt_files = sorted([f for f in p.iterdir() if f.suffix.lower() == ".mpt" and not f.name.startswith("._")], key=_natural_sort_key)  # pick first if present
     has_ec = len(mpt_files) > 0
     ec_ax = None
 
@@ -151,8 +167,8 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     # Use imshow for speed; mask nans
     Zm = np.ma.masked_invalid(Z)
     extent = (grid_x.min(), grid_x.max(), 0, Zm.shape[0]-1)
-    # Top-to-down visual order (scan 0 at top) -> origin='upper'
-    im = ax.imshow(Zm, aspect='auto', origin='upper', extent=extent, cmap='viridis', interpolation='nearest')
+    # Bottom-to-top visual order (scan 0 at bottom) to match EC time progression -> origin='lower'
+    im = ax.imshow(Zm, aspect='auto', origin='lower', extent=extent, cmap='viridis', interpolation='nearest')
     # Place colorbar on the left
     cbar = fig.colorbar(im, ax=ax, location='left', pad=0.15)
     cbar.ax.yaxis.set_ticks_position('left')
@@ -243,7 +259,8 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
             # Match interactive default: shrink EC gap and rebalance widths
             try:
                 # Decrease gap more aggressively with a sensible minimum
-                ec_gap_in = max(0.02, ec_gap_in * 0.2)
+                # Increase the multiplier from 0.2 to 0.35 for more spacing
+                ec_gap_in = max(0.05, ec_gap_in * 0.35)
                 # Transfer a fraction of width from EC to operando while keeping total similar
                 combined = (desired_ax_w_in if desired_ax_w_in > 0 else ax_wf * fig_w_in) + ec_w_in
                 ax_w_in_current = desired_ax_w_in if desired_ax_w_in > 0 else (ax_wf * fig_w_in)

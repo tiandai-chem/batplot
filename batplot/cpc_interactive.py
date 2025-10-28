@@ -296,6 +296,11 @@ def _style_snapshot(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_data=Non
             'right':  {'linewidth': ax2.spines.get('right').get_linewidth() if ax2.spines.get('right') else None,
                        'visible': ax2.spines.get('right').get_visible() if ax2.spines.get('right') else None},
         },
+        'labelpads': {
+            'x': getattr(ax.xaxis, 'labelpad', None),
+            'ly': getattr(ax.yaxis, 'labelpad', None),  # left y-axis (capacity)
+            'ry': getattr(ax2.yaxis, 'labelpad', None),  # right y-axis (efficiency)
+        },
         'series': {
             'charge': {
                 'color': _color_of(sc_charge),
@@ -626,6 +631,18 @@ def _apply_style(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, cfg: Dict, file_
                 if spec.get('visible') is not None:
                     try: spn.set_visible(bool(spec['visible']))
                     except Exception: pass
+    except Exception:
+        pass
+    # Restore labelpads
+    try:
+        pads = cfg.get('labelpads', {})
+        if pads:
+            if pads.get('x') is not None:
+                ax.xaxis.labelpad = pads['x']
+            if pads.get('ly') is not None:
+                ax.yaxis.labelpad = pads['ly']
+            if pads.get('ry') is not None:
+                ax2.yaxis.labelpad = pads['ry']
     except Exception:
         pass
     try:

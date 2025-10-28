@@ -135,12 +135,24 @@ def dump_session(
         for side in ('top', 'bottom', 'left', 'right'):
             sp_obj = axis.spines.get(side)
             prefix = {'top': 't', 'bottom': 'b', 'left': 'l', 'right': 'r'}[side]
+            # Consistent tick/title state logic for all sides
+            if side == 'left':
+                ylabel_text = axis.get_ylabel()
+                title_state = bool(ylabel_text)
+            elif side == 'bottom':
+                title_state = bool(axis.get_xlabel())
+            elif side == 'top':
+                title_state = bool(getattr(axis, '_top_xlabel_on', False))
+            elif side == 'right':
+                title_state = bool(getattr(axis, '_right_ylabel_on', False))
+            else:
+                title_state = False
             wasd[side] = {
                 'spine': bool(sp_obj.get_visible() if sp_obj else False),
                 'ticks': bool(ts.get(f'{prefix}_ticks', ts.get({'top':'tx','bottom':'bx','left':'ly','right':'ry'}[side], side=='bottom' or side=='left'))),
                 'minor': bool(ts.get(f'm{prefix}x' if side in ('top','bottom') else f'm{prefix}y', False)),
                 'labels': bool(ts.get(f'{prefix}_labels', ts.get({'top':'tx','bottom':'bx','left':'ly','right':'ry'}[side], side=='bottom' or side=='left'))),
-                'title': bool(getattr(axis, '_top_xlabel_on' if side=='top' else '_right_ylabel_on' if side=='right' else '', False)) if side in ('top','right') else bool(axis.get_xlabel() if side=='bottom' else axis.get_ylabel() if side=='left' else False),
+                'title': title_state,
             }
         return wasd
     
@@ -261,13 +273,14 @@ def dump_operando_session(
             ec_x0, ec_y0, ec_wf, ec_hf = ec_ax.get_position().bounds
         else:
             ec_x0 = ec_y0 = ec_wf = ec_hf = 0.0
-        cb_w_in = cb_wf * fig_w
-        cb_gap_in = (ax_x0 - (cb_x0 + cb_wf)) * fig_w
-        ax_w_in = ax_wf * fig_w
-        ax_h_in = ax_hf * fig_h
+        # Prefer using fixed attributes if they exist (more reliable than calculating from positions)
+        cb_w_in = getattr(cbar.ax, '_fixed_cb_w_in', cb_wf * fig_w)
+        cb_gap_in = getattr(cbar.ax, '_fixed_cb_gap_in', (ax_x0 - (cb_x0 + cb_wf)) * fig_w)
+        ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_wf * fig_w)
+        ax_h_in = getattr(ax, '_fixed_ax_h_in', ax_hf * fig_h)
         if ec_ax is not None:
-            ec_gap_in = (ec_x0 - (ax_x0 + ax_wf)) * fig_w
-            ec_w_in = ec_wf * fig_w
+            ec_gap_in = getattr(ec_ax, '_fixed_ec_gap_in', (ec_x0 - (ax_x0 + ax_wf)) * fig_w)
+            ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_wf * fig_w)
         else:
             ec_gap_in = 0.0
             ec_w_in = 0.0
@@ -321,12 +334,26 @@ def dump_operando_session(
             for side in ('top', 'bottom', 'left', 'right'):
                 sp = axis.spines.get(side)
                 prefix = {'top': 't', 'bottom': 'b', 'left': 'l', 'right': 'r'}[side]
+                # For 'left' side ylabel: check if it's currently visible (has text)
+                # If hidden but has stored text, the title state should be False (hidden)
+                if side == 'left':
+                    ylabel_text = axis.get_ylabel()
+                    title_state = bool(ylabel_text)  # True only if currently visible with text
+                elif side == 'bottom':
+                    title_state = bool(axis.get_xlabel())
+                elif side == 'top':
+                    title_state = bool(getattr(axis, '_top_xlabel_on', False))
+                elif side == 'right':
+                    title_state = bool(getattr(axis, '_right_ylabel_on', False))
+                else:
+                    title_state = False
+                
                 wasd[side] = {
                     'spine': bool(sp.get_visible() if sp else False),
                     'ticks': bool(ts.get(f'{prefix}_ticks', ts.get({'top':'tx','bottom':'bx','left':'ly','right':'ry'}[side], side=='bottom' or side=='left'))),
                     'minor': bool(ts.get(f'm{prefix}x' if side in ('top','bottom') else f'm{prefix}y', False)),
                     'labels': bool(ts.get(f'{prefix}_labels', ts.get({'top':'tx','bottom':'bx','left':'ly','right':'ry'}[side], side=='bottom' or side=='left'))),
-                    'title': bool(getattr(axis, '_top_xlabel_on' if side=='top' else '_right_ylabel_on' if side=='right' else '', False)) if side in ('top','right') else bool(axis.get_xlabel() if side=='bottom' else axis.get_ylabel() if side=='left' else False),
+                    'title': title_state,
                 }
             return wasd
         
@@ -414,6 +441,8 @@ def dump_operando_session(
                 'wasd_state': ec_wasd_state,
                 'spines': ec_spines,
                 'ticks': {'widths': ec_ticks},
+                'stored_ylabel': getattr(ec_ax, '_stored_ylabel', None),  # Save hidden ylabel text
+                'visible': bool(ec_ax.get_visible()),
             }
 
         sess = {
@@ -440,10 +469,12 @@ def dump_operando_session(
                 'wasd_state': op_wasd_state,
                 'spines': op_spines,
                 'ticks': {'widths': op_ticks},
+                'stored_ylabel': getattr(ax, '_stored_ylabel', None),  # Save hidden ylabel text
             },
             'colorbar': {
                 'label': cb_label,
                 'clim': cb_clim,
+                'visible': bool(cbar.ax.get_visible()),
             },
             'ec': ec_state,
             'font': {
@@ -526,30 +557,8 @@ def load_operando_session(filename: str):
             im.set_clim(*op['clim'])
         except Exception:
             pass
-    # Restore labels and labelpad
-    ax.set_xlabel(op['labels'].get('xlabel') or '')
-    ax.set_ylabel(op['labels'].get('ylabel') or 'Scan index')
-    try:
-        lp = op['labels'].get('x_labelpad')
-        if lp is not None:
-            ax.set_xlabel(ax.get_xlabel(), labelpad=float(lp))
-    except Exception:
-        pass
-    try:
-        lp = op['labels'].get('y_labelpad')
-        if lp is not None:
-            ax.set_ylabel(ax.get_ylabel(), labelpad=float(lp))
-    except Exception:
-        pass
-    try:
-        ax.set_xlim(*op['labels']['xlim'])
-        ax.set_ylim(*op['labels']['ylim'])
-    except Exception:
-        pass
-    # Persist custom labels
-    setattr(ax, '_custom_labels', dict(op.get('custom_labels', {'x': None, 'y': None})))
     
-    # Apply operando WASD state if version 2+
+    # Apply operando WASD state if version 2+ (BEFORE restoring labels!)
     version = sess.get('version', 1)
     if version >= 2:
         op_wasd = op.get('wasd_state')
@@ -594,11 +603,54 @@ def load_operando_session(filename: str):
                     op_ts[f'{prefix}_labels'] = bool(s.get('labels', False))
                     op_ts[f'm{prefix}x' if prefix in 'tb' else f'm{prefix}y'] = bool(s.get('minor', False))
                 ax._saved_tick_state = op_ts
-                # Apply title flags
+                # Apply title flags (must be set before restoring labels below)
                 ax._top_xlabel_on = bool(op_wasd.get('top', {}).get('title', False))
                 ax._right_ylabel_on = bool(op_wasd.get('right', {}).get('title', False))
             except Exception as e:
                 print(f"Warning: Could not apply operando WASD state: {e}")
+    else:
+        # For version 1 pkl files, assume default visibility
+        op_wasd = None
+    
+    # Restore labels and labelpad (respecting WASD title state)
+    # Bottom xlabel: restore if title is True (default) or if no WASD state
+    bottom_title_on = op_wasd.get('bottom', {}).get('title', True) if op_wasd else True
+    if bottom_title_on:
+        ax.set_xlabel(op['labels'].get('xlabel') or '')
+        try:
+            lp = op['labels'].get('x_labelpad')
+            if lp is not None:
+                ax.set_xlabel(ax.get_xlabel(), labelpad=float(lp))
+        except Exception:
+            pass
+    else:
+        ax.set_xlabel('')  # Hidden by user via s5
+    
+    # Left ylabel: restore if title is True (default) or if no WASD state
+    left_title_on = op_wasd.get('left', {}).get('title', True) if op_wasd else True
+    if left_title_on:
+        ax.set_ylabel(op['labels'].get('ylabel') or 'Scan index')
+        try:
+            lp = op['labels'].get('y_labelpad')
+            if lp is not None:
+                ax.set_ylabel(ax.get_ylabel(), labelpad=float(lp))
+        except Exception:
+            pass
+    else:
+        ax.set_ylabel('')  # Hidden by user via a5
+    
+    try:
+        ax.set_xlim(*op['labels']['xlim'])
+        ax.set_ylim(*op['labels']['ylim'])
+    except Exception:
+        pass
+    # Persist custom labels
+    setattr(ax, '_custom_labels', dict(op.get('custom_labels', {'x': None, 'y': None})))
+    
+    # Restore stored ylabel if present (for cases where ylabel was hidden with a5)
+    stored_ylabel = op.get('stored_ylabel')
+    if stored_ylabel is not None:
+        setattr(ax, '_stored_ylabel', stored_ylabel)
         
         # Apply operando spines
         op_spines = op.get('spines', {})
@@ -659,8 +711,7 @@ def load_operando_session(filename: str):
             alpha = st.get('alpha', None)
             ln, = ec_ax.plot(vv, th, lw=lw, color=color, linestyle=ls, alpha=alpha)
             setattr(ec_ax, '_ec_line', ln)
-        ec_ax.set_xlabel((ec.get('custom_labels') or {}).get('x') or 'Voltage (V)')
-        # Y label depends on mode but set after mode below
+        
         # Stash arrays for interactivity
         setattr(ec_ax, '_ec_time_h', th)
         setattr(ec_ax, '_ec_voltage_v', vv)
@@ -681,6 +732,65 @@ def load_operando_session(filename: str):
         # Persist saved time ylim
         if isinstance(ec.get('saved_time_ylim'), (list, tuple)):
             setattr(ec_ax, '_saved_time_ylim', tuple(ec['saved_time_ylim']))
+        
+        # Apply EC WASD state BEFORE setting labels (if version 2+)
+        ec_wasd = None
+        if version >= 2:
+            ec_wasd = ec.get('wasd_state')
+            if ec_wasd and isinstance(ec_wasd, dict):
+                from matplotlib.ticker import AutoMinorLocator, NullFormatter
+                try:
+                    # Apply spines
+                    for side in ('top', 'bottom', 'left', 'right'):
+                        if side in ec_wasd and 'spine' in ec_wasd[side]:
+                            sp = ec_ax.spines.get(side)
+                            if sp:
+                                sp.set_visible(bool(ec_wasd[side]['spine']))
+                    # Apply ticks
+                    ec_ax.tick_params(axis='x',
+                                     top=bool(ec_wasd.get('top', {}).get('ticks', False)),
+                                     bottom=bool(ec_wasd.get('bottom', {}).get('ticks', True)),
+                                     labeltop=bool(ec_wasd.get('top', {}).get('labels', False)),
+                                     labelbottom=bool(ec_wasd.get('bottom', {}).get('labels', True)))
+                    ec_ax.tick_params(axis='y',
+                                     left=bool(ec_wasd.get('left', {}).get('ticks', True)),
+                                     right=bool(ec_wasd.get('right', {}).get('ticks', False)),
+                                     labelleft=bool(ec_wasd.get('left', {}).get('labels', True)),
+                                     labelright=bool(ec_wasd.get('right', {}).get('labels', False)))
+                    # Apply minor ticks
+                    if ec_wasd.get('top', {}).get('minor') or ec_wasd.get('bottom', {}).get('minor'):
+                        ec_ax.xaxis.set_minor_locator(AutoMinorLocator())
+                        ec_ax.xaxis.set_minor_formatter(NullFormatter())
+                    ec_ax.tick_params(axis='x', which='minor',
+                                     top=bool(ec_wasd.get('top', {}).get('minor', False)),
+                                     bottom=bool(ec_wasd.get('bottom', {}).get('minor', False)))
+                    if ec_wasd.get('left', {}).get('minor') or ec_wasd.get('right', {}).get('minor'):
+                        ec_ax.yaxis.set_minor_locator(AutoMinorLocator())
+                        ec_ax.yaxis.set_minor_formatter(NullFormatter())
+                    ec_ax.tick_params(axis='y', which='minor',
+                                     left=bool(ec_wasd.get('left', {}).get('minor', False)),
+                                     right=bool(ec_wasd.get('right', {}).get('minor', False)))
+                    # Store WASD state
+                    ec_ts = {}
+                    for side_key, prefix in [('top', 't'), ('bottom', 'b'), ('left', 'l'), ('right', 'r')]:
+                        s = ec_wasd.get(side_key, {})
+                        ec_ts[f'{prefix}_ticks'] = bool(s.get('ticks', False))
+                        ec_ts[f'{prefix}_labels'] = bool(s.get('labels', False))
+                        ec_ts[f'm{prefix}x' if prefix in 'tb' else f'm{prefix}y'] = bool(s.get('minor', False))
+                    ec_ax._saved_tick_state = ec_ts
+                    # Apply title flags
+                    ec_ax._top_xlabel_on = bool(ec_wasd.get('top', {}).get('title', False))
+                    ec_ax._right_ylabel_on = bool(ec_wasd.get('right', {}).get('title', False))
+                except Exception as e:
+                    print(f"Warning: Could not apply EC WASD state: {e}")
+        
+        # Set xlabel (respecting WASD title state for bottom)
+        bottom_title_on = ec_wasd.get('bottom', {}).get('title', True) if ec_wasd else True
+        if bottom_title_on:
+            ec_ax.set_xlabel((ec.get('custom_labels') or {}).get('x') or 'Voltage (V)')
+        else:
+            ec_ax.set_xlabel('')  # Hidden by user via s5
+        
         # Handle ions mode
         mode = ec.get('mode', 'time')
         setattr(ec_ax, '_ec_y_mode', mode)
@@ -737,69 +847,34 @@ def load_operando_session(filename: str):
                             return ""
                     ec_ax.yaxis.set_major_formatter(FuncFormatter(_fmt))
                     ec_ax.yaxis.set_major_locator(MaxNLocator(nbins='auto', steps=[1,2,5], min_n_ticks=4))
-                    # Label (custom if set)
-                    lab = (ec_ax._custom_labels.get('y_ions') if getattr(ec_ax, '_custom_labels', {}).get('y_ions') else 'Number of ions')
-                    ec_ax.set_ylabel(lab)
+                    # Label (custom if set) - respect WASD right title state
+                    right_title_on = ec_wasd.get('right', {}).get('title', True) if ec_wasd else True
+                    if right_title_on:
+                        lab = (ec_ax._custom_labels.get('y_ions') if getattr(ec_ax, '_custom_labels', {}).get('y_ions') else 'Number of ions')
+                        ec_ax.set_ylabel(lab)
+                    else:
+                        ec_ax.set_ylabel('')  # Hidden by user via d5
             except Exception:
                 pass
         else:
-            # Time mode label
-            lab = (ec_ax._custom_labels.get('y_time') if getattr(ec_ax, '_custom_labels', {}).get('y_time') else 'Time (h)')
-            try:
-                ec_ax.set_ylabel(lab)
-            except Exception:
-                pass
-        
-        # Apply EC WASD state if version 2+
-        if version >= 2:
-            ec_wasd = ec.get('wasd_state')
-            if ec_wasd and isinstance(ec_wasd, dict):
-                from matplotlib.ticker import AutoMinorLocator, NullFormatter
+            # Time mode label - respect WASD right title state
+            right_title_on = ec_wasd.get('right', {}).get('title', True) if ec_wasd else True
+            if right_title_on:
+                lab = (ec_ax._custom_labels.get('y_time') if getattr(ec_ax, '_custom_labels', {}).get('y_time') else 'Time (h)')
                 try:
-                    # Apply spines
-                    for side in ('top', 'bottom', 'left', 'right'):
-                        if side in ec_wasd and 'spine' in ec_wasd[side]:
-                            sp = ec_ax.spines.get(side)
-                            if sp:
-                                sp.set_visible(bool(ec_wasd[side]['spine']))
-                    # Apply ticks
-                    ec_ax.tick_params(axis='x',
-                                     top=bool(ec_wasd.get('top', {}).get('ticks', False)),
-                                     bottom=bool(ec_wasd.get('bottom', {}).get('ticks', True)),
-                                     labeltop=bool(ec_wasd.get('top', {}).get('labels', False)),
-                                     labelbottom=bool(ec_wasd.get('bottom', {}).get('labels', True)))
-                    ec_ax.tick_params(axis='y',
-                                     left=bool(ec_wasd.get('left', {}).get('ticks', True)),
-                                     right=bool(ec_wasd.get('right', {}).get('ticks', False)),
-                                     labelleft=bool(ec_wasd.get('left', {}).get('labels', True)),
-                                     labelright=bool(ec_wasd.get('right', {}).get('labels', False)))
-                    # Apply minor ticks
-                    if ec_wasd.get('top', {}).get('minor') or ec_wasd.get('bottom', {}).get('minor'):
-                        ec_ax.xaxis.set_minor_locator(AutoMinorLocator())
-                        ec_ax.xaxis.set_minor_formatter(NullFormatter())
-                    ec_ax.tick_params(axis='x', which='minor',
-                                     top=bool(ec_wasd.get('top', {}).get('minor', False)),
-                                     bottom=bool(ec_wasd.get('bottom', {}).get('minor', False)))
-                    if ec_wasd.get('left', {}).get('minor') or ec_wasd.get('right', {}).get('minor'):
-                        ec_ax.yaxis.set_minor_locator(AutoMinorLocator())
-                        ec_ax.yaxis.set_minor_formatter(NullFormatter())
-                    ec_ax.tick_params(axis='y', which='minor',
-                                     left=bool(ec_wasd.get('left', {}).get('minor', False)),
-                                     right=bool(ec_wasd.get('right', {}).get('minor', False)))
-                    # Store WASD state
-                    ec_ts = {}
-                    for side_key, prefix in [('top', 't'), ('bottom', 'b'), ('left', 'l'), ('right', 'r')]:
-                        s = ec_wasd.get(side_key, {})
-                        ec_ts[f'{prefix}_ticks'] = bool(s.get('ticks', False))
-                        ec_ts[f'{prefix}_labels'] = bool(s.get('labels', False))
-                        ec_ts[f'm{prefix}x' if prefix in 'tb' else f'm{prefix}y'] = bool(s.get('minor', False))
-                    ec_ax._saved_tick_state = ec_ts
-                    # Apply title flags
-                    ec_ax._top_xlabel_on = bool(ec_wasd.get('top', {}).get('title', False))
-                    ec_ax._right_ylabel_on = bool(ec_wasd.get('right', {}).get('title', False))
-                except Exception as e:
-                    print(f"Warning: Could not apply EC WASD state: {e}")
-            
+                    ec_ax.set_ylabel(lab)
+                except Exception:
+                    pass
+            else:
+                ec_ax.set_ylabel('')  # Hidden by user via d5
+        
+        # Restore stored ylabel if present (for cases where ylabel was hidden)
+        stored_ylabel = ec.get('stored_ylabel')
+        if stored_ylabel is not None:
+            setattr(ec_ax, '_stored_ylabel', stored_ylabel)
+        
+        # Apply EC spines (WASD state already applied above)
+        if version >= 2:
             # Apply EC spines
             ec_spines = ec.get('spines', {})
             if ec_spines:
@@ -846,6 +921,22 @@ def load_operando_session(filename: str):
             plt.rcParams['font.sans-serif'] = f['chain']
         if f.get('size'):
             plt.rcParams['font.size'] = f['size']
+    except Exception:
+        pass
+
+    # Restore visibility states for colorbar and EC panel
+    try:
+        cb_meta = sess.get('colorbar', {})
+        cb_visible = cb_meta.get('visible', True)  # Default to visible if not saved
+        cbar.ax.set_visible(bool(cb_visible))
+    except Exception:
+        pass
+    
+    try:
+        if ec_ax is not None:
+            ec = sess.get('ec') or {}
+            ec_visible = ec.get('visible', True)  # Default to visible if not saved
+            ec_ax.set_visible(bool(ec_visible))
     except Exception:
         pass
 

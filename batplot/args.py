@@ -4,6 +4,64 @@ from __future__ import annotations
 
 import argparse
 import sys
+import re
+
+# Try to import rich for colored output
+try:
+    from rich.console import Console
+    from rich.markup import escape
+    _console = Console()
+    _HAS_RICH = True
+except ImportError:
+    _console = None
+    _HAS_RICH = False
+
+
+def _colorize_help(text: str) -> str:
+    """Add colors to help text by highlighting flags and special elements.
+    
+    Args:
+        text: Plain help text
+        
+    Returns:
+        Text with rich markup for colored output
+    """
+    if not _HAS_RICH:
+        return text
+    
+    # Escape any existing markup
+    text = escape(text)
+    
+    # Color all flags (--flag or -f)
+    text = re.sub(r'(--[\w-]+)', r'[cyan]\1[/cyan]', text)
+    text = re.sub(r'(\s-[a-zA-Z]\b)', r'[cyan]\1[/cyan]', text)
+    
+    # Color file extensions
+    text = re.sub(r'(\.\w{2,4}\b)', r'[yellow]\1[/yellow]', text)
+    
+    # Color example commands (batplot at start of line or after whitespace)
+    text = re.sub(r'(batplot\s+[^\n]+)', r'[green]\1[/green]', text)
+    
+    # Color section headers (lines ending with :)
+    text = re.sub(r'^([A-Z][\w\s/()]+:)$', r'[bold blue]\1[/bold blue]', text, flags=re.MULTILINE)
+    
+    # Color special markers
+    text = text.replace('•', '[bold]•[/bold]')
+    
+    return text
+
+
+def _print_help(text: str) -> None:
+    """Print help text with optional coloring.
+    
+    Args:
+        text: Help text to print
+    """
+    if _HAS_RICH and _console:
+        colored_text = _colorize_help(text)
+        _console.print(colored_text)
+    else:
+        print(text)
 
 
 def _print_general_help() -> None:
@@ -46,19 +104,21 @@ def _print_general_help() -> None:
         "  batplot -h xy   # XY file plotting guide\n"
         "  batplot -h ec   # Electrochemistry (GC/dQdV/CV/CPC) guide\n"
         "  batplot -h op   # Operando guide\n\n"
-        "Contact:\n"
+        "Contact & Updates:\n"
+        "  Subscribe to batplot-lab@kjemi.uio.no for updates and feedback\n"
         "  GitHub: https://github.com/tiandai-chem/batplot\n"
         "  Email: tianda@uio.no\n"
     )
-    print(msg)
+    _print_help(msg)
 
 
 def _print_xy_help() -> None:
     msg = (
         "XY plots (diffraction/PDF/XAS)\n\n"
         "Supported files: .xye .xy .qye .dat .csv .gr .nor .chik .chir .txt (2-col). CIF overlays supported.\n\n"
-        "Axis detection: .qye→Q, .gr→r, .nor→energy, .chik→k, .chir→r, else use --xaxis (Q, 2theta, r, k, energy, rft).\n"
-        "If mixing 2θ data in Q, give wavelength per-file (file.xye:1.5406) or global --wl.\n\n"
+        "Axis detection: .qye→Q, .gr→r, .nor→energy, .chik→k, .chir→r, else use --xaxis (Q, 2theta, r, k, energy, rft, time).\n"
+        "If mixing 2θ data in Q, give wavelength per-file (file.xye:1.5406) or global --wl.\n"
+        "For electrochemistry CSV/MPT time-voltage plots, use --xaxis time.\n\n"
         "Examples:\n"
         "  batplot a.xye:1.5406 b.qye --stack --interactive\n"
         "  batplot a.dat b.xy --wl 1.54 --out fig.svg\n"
@@ -80,12 +140,13 @@ def _print_xy_help() -> None:
     "  --norm                    : normalize intensity to 0-1 range. Stack mode (--stack) auto-normalizes\n"
     "  --xrange/-r <min> <max>   : set x-axis range, e.g. --xrange 0 10\n"
     "  --out/-o <filename>       : save figure to file, e.g. --out file.svg\n"
-    "  --xaxis <type>            : set x-axis type (Q, 2theta, r, k, energy, rft, or user defined), e.g. --xaxis 2theta\n"
+    "  --xaxis <type>            : set x-axis type (Q, 2theta, r, k, energy, rft, time, or user defined)\n"
+    "                              e.g. --xaxis 2theta, or --xaxis time for electrochemistry CSV/MPT time-voltage plots\n"
     "  --wl <float>              : set wavelength for Q conversion for all files, e.g. --wl 1.5406\n"
     "  --fullprof <args>         : FullProf overlay options\n"
     "  --stack                   : stack curves vertically (auto-enables normalization)\n"
     )
-    print(msg)
+    _print_help(msg)
 
 
 def _print_ec_help() -> None:
@@ -121,7 +182,7 @@ def _print_ec_help() -> None:
         "rename axes, toggle ticks/titles/spines, print/export/import style (.bps/.bpsg), save session (.pkl).\n"
         "Note: Batch mode (--all) exports SVG files automatically; --interactive is for single-file plotting only.\n"
     )
-    print(msg)
+    _print_help(msg)
 
 
 def _print_op_help() -> None:
@@ -139,7 +200,7 @@ def _print_op_help() -> None:
         "EC y-axis options (time ↔ ions), geometry tweaks, toggle spines/ticks/labels,\n"
         "print/export/import style, save session.\n"
     )
-    print(msg)
+    _print_help(msg)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -189,7 +250,10 @@ def parse_args(argv=None):
             _print_op_help()
         else:
             _print_general_help()
-            print("\nUnknown help topic. Use: xy, ec, op")
+            if _HAS_RICH and _console:
+                _console.print("\n[yellow]Unknown help topic. Use: xy, ec, op[/yellow]")
+            else:
+                print("\nUnknown help topic. Use: xy, ec, op")
         sys.exit(0)
     # No help requested: parse fully
     return parser.parse_args(argv)

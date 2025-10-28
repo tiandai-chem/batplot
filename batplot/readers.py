@@ -95,12 +95,50 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
     """
     import re
     
+    # Check if this is a full EC-Lab format or a simple 2-column export
+    is_eclab_format = False
+    with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+        first_line = f.readline().strip()
+        if first_line.startswith('EC-Lab ASCII FILE'):
+            is_eclab_format = True
+    
+    # Handle simple 2-column time/voltage export format (for operando time mode)
+    if not is_eclab_format and mode == 'time':
+        try:
+            # Read with tab delimiter and handle European comma decimal separator
+            with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+                # Skip header line
+                f.readline()
+                time_vals = []
+                voltage_vals = []
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split('\t')
+                    if len(parts) >= 2:
+                        # Replace comma with period for European locale
+                        time_vals.append(float(parts[0].replace(',', '.')))
+                        voltage_vals.append(float(parts[1].replace(',', '.')))
+                
+                if not time_vals:
+                    raise ValueError("No data found in file")
+                
+                time_s = np.array(time_vals)
+                voltage_v = np.array(voltage_vals)
+                current_mA = np.zeros_like(time_s)  # No current data in simple format
+                return time_s, voltage_v, current_mA
+        except Exception as e:
+            raise ValueError(f"Failed to read simple .mpt format: {e}")
+    
+    # For non-time modes or EC-Lab format, require full EC-Lab format
+    if not is_eclab_format:
+        raise ValueError(f"Not a valid EC-Lab .mpt file: {fname}")
+    
     # Read header to find number of header lines
     header_lines = 0
     with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
         first_line = f.readline().strip()
-        if not first_line.startswith('EC-Lab ASCII FILE'):
-            raise ValueError(f"Not a valid EC-Lab .mpt file: {fname}")
         
         # Find header lines count
         for line in f:
@@ -289,13 +327,16 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
         if voltage_col is None:
             available = ', '.join(f"'{c}'" for c in column_names)
             raise ValueError(f"Could not find 'Ewe/V' or 'Ewe' column.\nAvailable columns: {available}")
-        if current_col is None:
-            available = ', '.join(f"'{c}'" for c in column_names)
-            raise ValueError(f"Could not find '<I>/mA' column.\nAvailable columns: {available}")
         
         time_data = data[:, time_col]
         voltage_data = data[:, voltage_col]
-        current_data = data[:, current_col]
+        
+        # Current column is optional (only needed for advanced features like ion counting)
+        if current_col is None:
+            # Return None for current_data if column not found
+            current_data = None
+        else:
+            current_data = data[:, current_col]
         
         return (time_data, voltage_data, current_data)
     
@@ -915,3 +956,190 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
     discharge_mask = ~is_charge
 
     return voltage, dqdv, inferred_cycles, charge_mask, discharge_mask, y_label
+
+
+def read_csv_time_voltage(fname: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Read time (in hours) and voltage from a cycler CSV file.
+    
+    Args:
+        fname: Path to CSV file with columns like 'Total Time' and 'Voltage(V)'
+        
+    Returns:
+        (time_h, voltage) where time_h is in hours and voltage in volts
+    """
+    import csv
+    
+    # Read first two rows to compose header (same logic as read_ec_csv_file)
+    with open(fname, newline='', encoding='utf-8', errors='ignore') as f:
+        r = csv.reader(f)
+        try:
+            r1 = next(r)
+            r2 = next(r)
+        except StopIteration:
+            raise ValueError(f"CSV '{fname}' is empty or missing header rows")
+        
+        # If second line begins with an empty first cell, treat it as continuation of header
+        if len(r2) > 0 and (r2[0] == '' or str(r2[0]).strip() == ''):
+            header = [c.strip() for c in r1] + [c.strip() for c in r2[1:]]
+            rows = list(r)
+        else:
+            header = [c.strip() for c in r1]
+            rows = [r2] + list(r)
+    
+    # Build column index map
+    name_to_idx = {h: i for i, h in enumerate(header)}
+    
+    # Look for time and voltage columns (try multiple common names)
+    time_idx = None
+    for name in ['Total Time', 'Time', 'time/s', 'Time(s)', 'Test Time(s)']:
+        if name in name_to_idx:
+            time_idx = name_to_idx[name]
+            break
+    
+    voltage_idx = None
+    for name in ['Voltage(V)', 'Voltage', 'Ewe/V', 'Voltage/V']:
+        if name in name_to_idx:
+            voltage_idx = name_to_idx[name]
+            break
+    
+    if time_idx is None:
+        raise ValueError(f"CSV '{fname}' missing time column. Expected 'Total Time', 'Time', 'time/s', etc.")
+    if voltage_idx is None:
+        raise ValueError(f"CSV '{fname}' missing voltage column. Expected 'Voltage(V)', 'Voltage', 'Ewe/V', etc.")
+    
+    # Parse data
+    n = len(rows)
+    time_data = np.empty(n, dtype=float)
+    voltage_data = np.empty(n, dtype=float)
+    
+    def _parse_time(val: str) -> float:
+        """Parse time from string, handling HH:MM:SS format and numeric seconds."""
+        if isinstance(val, (int, float)):
+            return float(val)
+        val = str(val).strip()
+        # Try HH:MM:SS format
+        if ':' in val:
+            parts = val.split(':')
+            try:
+                if len(parts) == 3:  # HH:MM:SS
+                    h, m, s = float(parts[0]), float(parts[1]), float(parts[2])
+                    return h * 3600 + m * 60 + s
+                elif len(parts) == 2:  # MM:SS
+                    m, s = float(parts[0]), float(parts[1])
+                    return m * 60 + s
+            except:
+                pass
+        # Try as plain number (seconds)
+        try:
+            return float(val)
+        except:
+            return np.nan
+    
+    def _to_float(val: str) -> float:
+        try:
+            return float(str(val).strip()) if val else np.nan
+        except:
+            return np.nan
+    
+    for k, row in enumerate(rows):
+        if len(row) < len(header):
+            row = row + [''] * (len(header) - len(row))
+        time_data[k] = _parse_time(row[time_idx])
+        voltage_data[k] = _to_float(row[voltage_idx])
+    
+    # Convert time from seconds to hours
+    time_h = time_data / 3600.0
+    
+    # Remove NaN values
+    mask = ~(np.isnan(time_h) | np.isnan(voltage_data))
+    return time_h[mask], voltage_data[mask]
+
+
+def read_mpt_time_voltage(fname: str) -> Tuple[np.ndarray, np.ndarray]:
+    """Read time (in hours) and voltage from a BioLogic .mpt file.
+    
+    Args:
+        fname: Path to .mpt file
+        
+    Returns:
+        (time_h, voltage) where time_h is in hours and voltage in volts
+    """
+    import re
+    
+    # Read header to find number of header lines
+    header_lines = 0
+    with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+        first_line = f.readline().strip()
+        if not first_line.startswith('EC-Lab ASCII FILE'):
+            raise ValueError(f"Not a valid EC-Lab .mpt file: {fname}")
+        
+        for line in f:
+            if line.startswith('Nb header lines'):
+                match = re.search(r'Nb header lines\s*:\s*(\d+)', line)
+                if match:
+                    header_lines = int(match.group(1))
+                    break
+        if header_lines == 0:
+            raise ValueError(f"Could not find header line count in {fname}")
+    
+    # Read data
+    data_lines = []
+    column_names = []
+    
+    with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
+        # Skip header lines
+        for i in range(header_lines - 1):
+            f.readline()
+        
+        # Read column names
+        header_line = f.readline().strip()
+        column_names = [col.strip() for col in header_line.split('\t')]
+        
+        # Read data lines
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                # Replace comma decimal separator with period
+                values = [float(val.replace(',', '.')) for val in line.split('\t')]
+                if len(values) == len(column_names):
+                    data_lines.append(values)
+            except ValueError:
+                continue
+    
+    if not data_lines:
+        raise ValueError(f"No valid data found in {fname}")
+    
+    # Convert to numpy array
+    data = np.array(data_lines)
+    col_map = {name: i for i, name in enumerate(column_names)}
+    
+    # Look for time column (try multiple names)
+    time_idx = None
+    for name in ['time/s', 'Time/s', 'time', 'Time']:
+        if name in col_map:
+            time_idx = col_map[name]
+            break
+    
+    # Look for voltage column
+    voltage_idx = None
+    for name in ['Ewe/V', 'Voltage/V', 'Voltage', 'Ewe']:
+        if name in col_map:
+            voltage_idx = col_map[name]
+            break
+    
+    if time_idx is None:
+        raise ValueError(f"MPT file '{fname}' missing time column")
+    if voltage_idx is None:
+        raise ValueError(f"MPT file '{fname}' missing voltage column")
+    
+    time_s = data[:, time_idx]
+    voltage = data[:, voltage_idx]
+    
+    # Convert time from seconds to hours
+    time_h = time_s / 3600.0
+    
+    # Remove NaN values
+    mask = ~(np.isnan(time_h) | np.isnan(voltage))
+    return time_h[mask], voltage[mask]

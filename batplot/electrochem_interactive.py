@@ -649,6 +649,10 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 'wasd_state': dict(getattr(fig, '_ec_wasd_state', {})) if hasattr(fig, '_ec_wasd_state') else {},
                 'fig_size': list(fig.get_size_inches()),
                 'rotation_angle': getattr(fig, '_ec_rotation_angle', 0),
+                'labelpads': {
+                    'x': getattr(ax.xaxis, 'labelpad', None),
+                    'y': getattr(ax.yaxis, 'labelpad', None),
+                },
                 'spines': {name: {
                     'lw': (ax.spines.get(name).get_linewidth() if ax.spines.get(name) else None),
                     'visible': (ax.spines.get(name).get_visible() if ax.spines.get(name) else None)
@@ -774,6 +778,16 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 ax._top_xlabel_on = bool(snap.get('titles',{}).get('top_x', False))
                 ax._right_ylabel_on = bool(snap.get('titles',{}).get('right_y', False))
                 _position_top_xlabel(); _position_right_ylabel()
+            except Exception:
+                pass
+            # Restore labelpads (for title positioning)
+            try:
+                pads = snap.get('labelpads', {})
+                if pads:
+                    if pads.get('x') is not None:
+                        ax.xaxis.labelpad = pads['x']
+                    if pads.get('y') is not None:
+                        ax.yaxis.labelpad = pads['y']
             except Exception:
                 pass
             # Lines (by index)

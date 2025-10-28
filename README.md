@@ -130,3 +130,5 @@ Tian Dai (tianda@uio.no)
 University of Oslo
 
 **GitHub**: https://github.com/tiandai-chem/batplot
+
+**Subscribe for Updates**: Join batplot-lab@kjemi.uio.no for updates, feature announcements, and community feedback

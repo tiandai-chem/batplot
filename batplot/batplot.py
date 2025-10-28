@@ -28,6 +28,8 @@ from .readers import (
     read_mpt_file,
     read_ec_csv_file,
     read_ec_csv_dqdv_file,
+    read_csv_time_voltage,
+    read_mpt_time_voltage,
 )
 from .cif import (
     simulate_cif_pattern_Q,
@@ -75,6 +77,22 @@ except ImportError:
 
 # Global state variables (used by interactive menus and style system)
 keep_canvas_fixed = False
+
+
+def _natural_sort_key(filename: str) -> list:
+    """Generate a natural sorting key for filenames with numbers.
+    
+    Converts 'file_10.xy' to ['file_', 10, '.xy'] so numerical parts are sorted numerically.
+    This ensures file_2.xy comes before file_10.xy (natural order).
+    """
+    parts = []
+    for match in re.finditer(r'(\d+|\D+)', filename):
+        text = match.group(0)
+        if text.isdigit():
+            parts.append(int(text))
+        else:
+            parts.append(text.lower())
+    return parts
 
 
 def batplot_main() -> int:
@@ -1129,7 +1147,7 @@ def batplot_main() -> int:
             all_xy_files = []
             unknown_ext_files = []
             
-            for f in sorted(os.listdir(os.getcwd())):
+            for f in sorted(os.listdir(os.getcwd()), key=_natural_sort_key):
                 if not os.path.isfile(os.path.join(os.getcwd(), f)):
                     continue
                 ext = os.path.splitext(f)[1].lower()
@@ -1702,49 +1720,59 @@ def batplot_main() -> int:
     # ---------------- Determine X-axis type ----------------
     def _ext_token(path):
         return os.path.splitext(path)[1].lower()  # includes leading dot
-    any_qye = any(f.lower().endswith(".qye") for f in args.files)
-    any_gr  = any(f.lower().endswith(".gr")  for f in args.files)
-    any_nor = any(f.lower().endswith(".nor") for f in args.files)
-    any_chik = any("chik" in _ext_token(f) for f in args.files)
-    any_chir = any("chir" in _ext_token(f) for f in args.files)
-    any_txt = any(f.lower().endswith(".txt") for f in args.files)
-    any_cif = any(f.lower().endswith(".cif") for f in args.files)
-    non_cif_count = sum(0 if f.lower().endswith('.cif') else 1 for f in args.files)
-    cif_only = any_cif and non_cif_count == 0
-    any_lambda = any(":" in f for f in args.files) or args.wl is not None
+    
+    # Check for CSV/MPT files with --xaxis time
+    any_csv = any(f.lower().endswith((".csv", ".mpt")) for f in args.files)
+    use_time_mode = any_csv and args.xaxis and args.xaxis.lower() == "time"
+    
+    if use_time_mode:
+        # Special mode: plot time (h) vs voltage (V) for electrochemistry CSV/MPT files
+        axis_mode = "time"
+    else:
+        # Regular XRD/PDF/XAS mode - proceed with normal detection
+        any_qye = any(f.lower().endswith(".qye") for f in args.files)
+        any_gr  = any(f.lower().endswith(".gr")  for f in args.files)
+        any_nor = any(f.lower().endswith(".nor") for f in args.files)
+        any_chik = any("chik" in _ext_token(f) for f in args.files)
+        any_chir = any("chir" in _ext_token(f) for f in args.files)
+        any_txt = any(f.lower().endswith(".txt") for f in args.files)
+        any_cif = any(f.lower().endswith(".cif") for f in args.files)
+        non_cif_count = sum(0 if f.lower().endswith('.cif') else 1 for f in args.files)
+        cif_only = any_cif and non_cif_count == 0
+        any_lambda = any(":" in f for f in args.files) or args.wl is not None
 
-    # Incompatibilities (no mixing of fundamentally different axis domains)
-    if sum(bool(x) for x in (any_gr, any_nor, any_chik, any_chir, (any_qye or any_lambda or any_cif))) > 1:
-        raise ValueError("Cannot mix .gr (r), .nor (energy), .chik (k), .chir (FT-EXAFS R), and Q/2θ/CIF data together. Split runs.")
+        # Incompatibilities (no mixing of fundamentally different axis domains)
+        if sum(bool(x) for x in (any_gr, any_nor, any_chik, any_chir, (any_qye or any_lambda or any_cif))) > 1:
+            raise ValueError("Cannot mix .gr (r), .nor (energy), .chik (k), .chir (FT-EXAFS R), and Q/2θ/CIF data together. Split runs.")
 
-    # Automatic axis selection based on file extensions
-    if any_qye:
-        axis_mode = "Q"
-    elif any_gr:
-        axis_mode = "r"
-    elif any_nor:
-        axis_mode = "energy"
-    elif any_chik:
-        axis_mode = "k"
-    elif any_chir:
-        axis_mode = "rft"
-    elif any_txt:
-        # .txt is generic, require --xaxis
-        if args.xaxis:
+        # Automatic axis selection based on file extensions
+        if any_qye:
+            axis_mode = "Q"
+        elif any_gr:
+            axis_mode = "r"
+        elif any_nor:
+            axis_mode = "energy"
+        elif any_chik:
+            axis_mode = "k"
+        elif any_chir:
+            axis_mode = "rft"
+        elif any_txt:
+            # .txt is generic, require --xaxis
+            if args.xaxis:
+                axis_mode = args.xaxis
+            else:
+                raise ValueError("Cannot determine X-axis type for .txt files. Please specify --xaxis (Q, 2theta, r, k, energy, rft, or 'user defined').")
+        elif any_lambda or any_cif:
+            if args.xaxis and args.xaxis.lower() in ("2theta","two_theta","tth"):
+                axis_mode = "2theta"
+            else:
+                # If wavelength is provided, user wants to convert to Q
+                # CIF files are in Q space
+                axis_mode = "Q"
+        elif args.xaxis:
             axis_mode = args.xaxis
         else:
-            raise ValueError("Cannot determine X-axis type for .txt files. Please specify --xaxis (Q, 2theta, r, k, energy, rft, or 'user defined').")
-    elif any_lambda or any_cif:
-        if args.xaxis and args.xaxis.lower() in ("2theta","two_theta","tth"):
-            axis_mode = "2theta"
-        else:
-            # If wavelength is provided, user wants to convert to Q
-            # CIF files are in Q space
-            axis_mode = "Q"
-    elif args.xaxis:
-        axis_mode = args.xaxis
-    else:
-        raise ValueError("Cannot determine X-axis type (need .qye / .gr / .nor / .chik / .chir / .cif / wavelength / --xaxis). For .txt or unknown file types, use --xaxis Q, 2theta, r, k, energy, rft, or 'user defined'.")
+            raise ValueError("Cannot determine X-axis type (need .qye / .gr / .nor / .chik / .chir / .cif / wavelength / --xaxis). For .txt or unknown file types, use --xaxis Q, 2theta, r, k, energy, rft, or 'user defined'.")
 
     use_Q   = axis_mode == "Q"
     use_2th = axis_mode == "2theta"
@@ -1752,6 +1780,7 @@ def batplot_main() -> int:
     use_E   = axis_mode == "energy"
     use_k   = axis_mode == "k"      # NEW
     use_rft = axis_mode == "rft"    # NEW
+    use_time = axis_mode == "time"  # NEW: electrochemistry time mode
 
     # Validate: if using 2theta mode with CIF files, wavelength is required
     if use_2th and any_cif and not wavelength_file:
@@ -1817,8 +1846,19 @@ def batplot_main() -> int:
         if wavelength_file and not use_r and not use_E and file_ext not in (".gr", ".nor", ".cif"):
             label += f" (λ={wavelength_file:.5f} Å)"
 
-        # ---- Read data (added .nor branch) ----
-        if is_cif:
+        # ---- Read data (time mode for CSV/MPT or regular mode) ----
+        if use_time and file_ext in ('.csv', '.mpt'):
+            # Time mode: read time (h) vs voltage (V) for electrochemistry files
+            try:
+                if file_ext == '.csv':
+                    x, y = read_csv_time_voltage(fname)
+                elif file_ext == '.mpt':
+                    x, y = read_mpt_time_voltage(fname)
+                e = None
+            except Exception as e_read:
+                print(f"Error reading {fname} in time mode: {e_read}")
+                continue
+        elif is_cif:
             try:
                 # Simulate pattern directly in Q space regardless of current axis_mode
                 Q_sim, I_sim = simulate_cif_pattern_Q(fname)
@@ -1890,15 +1930,18 @@ def batplot_main() -> int:
                 args._warned_extensions.add(file_ext)
                 print(f"Note: Reading '{file_ext}' file as 2-column (x, y) data. Use --xaxis to specify x-axis type if needed.")
 
-        # ---- X-axis conversion logic updated (no conversion for energy) ----
-        if use_Q and file_ext not in (".qye", ".gr", ".nor"):
+        # ---- X-axis conversion logic updated (no conversion for energy or time) ----
+        if use_time:
+            # Time mode: data already in hours, no conversion needed
+            x_plot = x
+        elif use_Q and file_ext not in (".qye", ".gr", ".nor"):
             if wavelength_file:
                 theta_rad = np.radians(x/2)
                 x_plot = 4*np.pi*np.sin(theta_rad)/wavelength_file
             else:
                 x_plot = x
         else:
-            # r, energy, or already Q: direct
+            # r, energy, k, rft, or already Q: direct
             x_plot = x
 
         # ---- Store full (converted) arrays BEFORE cropping ----
@@ -2298,14 +2341,17 @@ def batplot_main() -> int:
     elif use_rft: x_label = "Radial distance (Å)"
     elif use_Q: x_label = r"Q ($\mathrm{\AA}^{-1}$)"
     elif use_2th: x_label = r"$2\theta$ (deg)"
+    elif use_time: x_label = "Time (h)"
     elif args.xaxis:
         x_label = str(args.xaxis)
     else:
         x_label = "X"
     ax.set_xlabel(x_label, fontsize=16)
-    # Y-axis label: normalized if --stack or --norm
+    # Y-axis label: normalized if --stack or --norm, or voltage for time mode
     should_normalize = args.stack or getattr(args, 'norm', False)
-    if should_normalize:
+    if use_time:
+        ax.set_ylabel("Voltage (V)", fontsize=16)
+    elif should_normalize:
         ax.set_ylabel("Normalized intensity (a.u.)", fontsize=16)
     else:
         ax.set_ylabel("Intensity", fontsize=16)

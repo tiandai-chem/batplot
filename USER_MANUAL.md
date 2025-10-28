@@ -135,6 +135,16 @@ batplot file.csv --dqdv
 batplot file.mpt --cv --interactive
 # Plot CV data with full interactive menu support
 
+batplot file.csv --xaxis time --interactive
+# Plot time (h) vs voltage (V) from CSV file with full interactive menu
+# All interactive commands (p, i, s, b, f, l, etc.) are available
+
+batplot file.mpt --xaxis time --interactive
+# Plot time (h) vs voltage (V) from MPT file with interactive menu
+
+batplot file1.csv file2.csv --xaxis time --stack --interactive
+# Plot multiple time-voltage curves stacked with interactive menu
+
 batplot file1.csv file2.csv file3.mpt --cpc --mass 6.2 --interactive
 # Plot multiple CPC files on same axes with interactive menu
 # Each file can be styled individually (colors)
@@ -144,6 +154,17 @@ batplot file1.csv file2.csv file3.mpt --cpc --mass 6.2 --interactive
 batplot file.csv --cpc --interactive
 # Plot single CPC file with interactive menu
 ```
+
+### Time Mode (`--xaxis time`)
+
+When using `--xaxis time` with CSV or MPT files, batplot plots time (in hours) on the X-axis and voltage (in volts) on the Y-axis, similar to the EC panel in operando mode. This mode supports:
+- Full interactive menu with all features (p, i, s, b, f, l, m, etc.)
+- Multiple file plotting
+- Stack mode (`--stack`) for offset curves
+- Range control (`--xrange`)
+- All standard styling and export options
+
+The time mode automatically extracts time columns (e.g., "Total Time", "time/s") and voltage columns (e.g., "Voltage(V)", "Ewe/V") from the file and converts time to hours.
 
 ### CPC Interactive Menu Features
 
@@ -251,5 +272,6 @@ For questions, bug reports, or feature requests:
 
 - **GitHub**: https://github.com/tiandai-chem/batplot
 - **Email**: tianda@uio.no
+- **Mailing List**: Subscribe to batplot-lab@kjemi.uio.no for updates, feature announcements, and community discussions
 
 Feel free to open an issue on GitHub or reach out via email!
