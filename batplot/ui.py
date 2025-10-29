@@ -438,189 +438,191 @@ def ensure_text_visibility(fig, ax, label_text_objects: List, max_iterations=4, 
 
 
 def resize_plot_frame(fig, ax, y_data_list: List, label_text_objects: List, args, update_labels_func):
-    try:
-        fig_w_in, fig_h_in = fig.get_size_inches()
-        ax_bbox = ax.get_position()
-        cur_ax_w_in = ax_bbox.width * fig_w_in
-        cur_ax_h_in = ax_bbox.height * fig_h_in
-        print(f"Current canvas (fixed): {fig_w_in:.2f} x {fig_h_in:.2f} in")
-        print(f"Current plot frame:     {cur_ax_w_in:.2f} x {cur_ax_h_in:.2f} in (W x H)")
+    while True:
         try:
-            spec = input("Enter new plot frame size (e.g. '6 4', '6x4', 'w=6 h=4', 'scale=1.2', single width, q=cancel): ").strip().lower()
+            fig_w_in, fig_h_in = fig.get_size_inches()
+            ax_bbox = ax.get_position()
+            cur_ax_w_in = ax_bbox.width * fig_w_in
+            cur_ax_h_in = ax_bbox.height * fig_h_in
+            print(f"Current canvas (fixed): {fig_w_in:.2f} x {fig_h_in:.2f} in")
+            print(f"Current plot frame:     {cur_ax_w_in:.2f} x {cur_ax_h_in:.2f} in (W x H)")
+            try:
+                spec = input("Enter new plot frame size (e.g. '6 4', '6x4', 'w=6 h=4', 'scale=1.2', single width, q=back): ").strip().lower()
+            except KeyboardInterrupt:
+                print("Canceled.")
+                return
+            if not spec or spec == 'q':
+                return
+            new_w_in, new_h_in = cur_ax_w_in, cur_ax_h_in
+            if 'scale=' in spec:
+                try:
+                    factor = float(spec.split('scale=')[1].strip())
+                    new_w_in = cur_ax_w_in * factor
+                    new_h_in = cur_ax_h_in * factor
+                except Exception:
+                    print("Invalid scale factor.")
+                    continue
+            else:
+                parts = spec.replace('x', ' ').split()
+                kv = {}; numbers = []
+                for p in parts:
+                    if '=' in p:
+                        k, v = p.split('=', 1)
+                        kv[k.strip()] = v.strip()
+                    else:
+                        numbers.append(p)
+                if kv:
+                    if 'w' in kv: new_w_in = float(kv['w'])
+                    if 'h' in kv: new_h_in = float(kv['h'])
+                elif len(numbers) == 2:
+                    new_w_in, new_h_in = float(numbers[0]), float(numbers[1])
+                elif len(numbers) == 1:
+                    new_w_in = float(numbers[0])
+                    aspect = cur_ax_h_in / cur_ax_w_in if cur_ax_w_in else 1.0
+                    new_h_in = new_w_in * aspect
+                else:
+                    print("Could not parse specification.")
+                    continue
+            req_w_in, req_h_in = new_w_in, new_h_in
+            min_margin_frac = 0.05
+            max_w_in = fig_w_in * (1 - 2 * min_margin_frac)
+            max_h_in = fig_h_in * (1 - 2 * min_margin_frac)
+            if new_w_in > max_w_in:
+                print(f"Requested width {new_w_in:.2f} exceeds max {max_w_in:.2f}; clamped.")
+                new_w_in = max_w_in
+            if new_h_in > max_h_in:
+                print(f"Requested height {new_h_in:.2f} exceeds max {max_h_in:.2f}; clamped.")
+                new_h_in = max_h_in
+            min_ax_in = 0.25
+            new_w_in = max(min_ax_in, new_w_in)
+            new_h_in = max(min_ax_in, new_h_in)
+            tol = 1e-3
+            requesting_full_canvas = (abs(req_w_in - fig_w_in) < tol and abs(req_h_in - fig_h_in) < tol)
+            w_frac = new_w_in / fig_w_in
+            h_frac = new_h_in / fig_h_in
+            same_axes = False
+            if hasattr(fig, '_last_user_axes_inches'):
+                pw, ph = fig._last_user_axes_inches
+                if abs(pw - new_w_in) < tol and abs(ph - new_h_in) < tol:
+                    same_axes = True
+            if same_axes and hasattr(fig, '_last_user_margins'):
+                lm, bm, rm, tm = fig._last_user_margins
+                fig.subplots_adjust(left=lm, bottom=bm, right=rm, top=tm)
+                update_labels_func(ax, y_data_list, label_text_objects, args.stack)
+                if not ensure_text_visibility(fig, ax, label_text_objects, check_only=True):
+                    fig.canvas.draw_idle()
+                    print(f"Plot frame unchanged ({new_w_in:.2f} x {new_h_in:.2f} in); layout preserved.")
+                    continue
+            left = (1 - w_frac) / 2
+            right = left + w_frac
+            bottom = (1 - h_frac) / 2
+            top = bottom + h_frac
+            left = max(min_margin_frac, left)
+            bottom = max(min_margin_frac, bottom)
+            right = min(1 - min_margin_frac, right)
+            top = min(1 - min_margin_frac, top)
+            if right - left < 0.05 or top - bottom < 0.05:
+                print("Requested frame too small after safety clamps; aborting.")
+            else:
+                fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
+            update_labels_func(ax, y_data_list, label_text_objects, args.stack)
+            ensure_text_visibility(fig, ax, label_text_objects)
+            sp = fig.subplotpars
+            fig._last_user_axes_inches = (((sp.right - sp.left) * fig_w_in), ((sp.top - sp.bottom) * fig_h_in))
+            fig._last_user_margins = (sp.left, sp.bottom, sp.right, sp.top)
+            final_w_in = (sp.right - sp.left) * fig_w_in
+            final_h_in = (sp.top - sp.bottom) * fig_h_in
+            if requesting_full_canvas:
+                print(f"Requested full-canvas frame. Canvas remains {fig_w_in:.2f} x {fig_h_in:.2f} in; frame now {final_w_in:.2f} x {final_h_in:.2f} in (maximum with minimum margins {min_margin_frac*100:.0f}%).")
+            else:
+                print(f"Plot frame set to {final_w_in:.2f} x {final_h_in:.2f} in inside fixed canvas {fig_w_in:.2f} x {fig_h_in:.2f} in.")
         except KeyboardInterrupt:
             print("Canceled.")
             return
-        if not spec or spec == 'q':
-            print("Canceled.")
-            return
-        new_w_in, new_h_in = cur_ax_w_in, cur_ax_h_in
-        if 'scale=' in spec:
-            try:
-                factor = float(spec.split('scale=')[1].strip())
-                new_w_in = cur_ax_w_in * factor
-                new_h_in = cur_ax_h_in * factor
-            except Exception:
-                print("Invalid scale factor.")
-                return
-        else:
-            parts = spec.replace('x', ' ').split()
-            kv = {}; numbers = []
-            for p in parts:
-                if '=' in p:
-                    k, v = p.split('=', 1)
-                    kv[k.strip()] = v.strip()
-                else:
-                    numbers.append(p)
-            if kv:
-                if 'w' in kv: new_w_in = float(kv['w'])
-                if 'h' in kv: new_h_in = float(kv['h'])
-            elif len(numbers) == 2:
-                new_w_in, new_h_in = float(numbers[0]), float(numbers[1])
-            elif len(numbers) == 1:
-                new_w_in = float(numbers[0])
-                aspect = cur_ax_h_in / cur_ax_w_in if cur_ax_w_in else 1.0
-                new_h_in = new_w_in * aspect
-            else:
-                print("Could not parse specification.")
-                return
-        req_w_in, req_h_in = new_w_in, new_h_in
-        min_margin_frac = 0.05
-        max_w_in = fig_w_in * (1 - 2 * min_margin_frac)
-        max_h_in = fig_h_in * (1 - 2 * min_margin_frac)
-        if new_w_in > max_w_in:
-            print(f"Requested width {new_w_in:.2f} exceeds max {max_w_in:.2f}; clamped.")
-            new_w_in = max_w_in
-        if new_h_in > max_h_in:
-            print(f"Requested height {new_h_in:.2f} exceeds max {max_h_in:.2f}; clamped.")
-            new_h_in = max_h_in
-        min_ax_in = 0.25
-        new_w_in = max(min_ax_in, new_w_in)
-        new_h_in = max(min_ax_in, new_h_in)
-        tol = 1e-3
-        requesting_full_canvas = (abs(req_w_in - fig_w_in) < tol and abs(req_h_in - fig_h_in) < tol)
-        w_frac = new_w_in / fig_w_in
-        h_frac = new_h_in / fig_h_in
-        same_axes = False
-        if hasattr(fig, '_last_user_axes_inches'):
-            pw, ph = fig._last_user_axes_inches
-            if abs(pw - new_w_in) < tol and abs(ph - new_h_in) < tol:
-                same_axes = True
-        if same_axes and hasattr(fig, '_last_user_margins'):
-            lm, bm, rm, tm = fig._last_user_margins
-            fig.subplots_adjust(left=lm, bottom=bm, right=rm, top=tm)
-            update_labels_func(ax, y_data_list, label_text_objects, args.stack)
-            if not ensure_text_visibility(fig, ax, label_text_objects, check_only=True):
-                fig.canvas.draw_idle()
-                print(f"Plot frame unchanged ({new_w_in:.2f} x {new_h_in:.2f} in); layout preserved.")
-                return
-        left = (1 - w_frac) / 2
-        right = left + w_frac
-        bottom = (1 - h_frac) / 2
-        top = bottom + h_frac
-        left = max(min_margin_frac, left)
-        bottom = max(min_margin_frac, bottom)
-        right = min(1 - min_margin_frac, right)
-        top = min(1 - min_margin_frac, top)
-        if right - left < 0.05 or top - bottom < 0.05:
-            print("Requested frame too small after safety clamps; aborting.")
-        else:
-            fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
-        update_labels_func(ax, y_data_list, label_text_objects, args.stack)
-        ensure_text_visibility(fig, ax, label_text_objects)
-        sp = fig.subplotpars
-        fig._last_user_axes_inches = (((sp.right - sp.left) * fig_w_in), ((sp.top - sp.bottom) * fig_h_in))
-        fig._last_user_margins = (sp.left, sp.bottom, sp.right, sp.top)
-        final_w_in = (sp.right - sp.left) * fig_w_in
-        final_h_in = (sp.top - sp.bottom) * fig_h_in
-        if requesting_full_canvas:
-            print(f"Requested full-canvas frame. Canvas remains {fig_w_in:.2f} x {fig_h_in:.2f} in; frame now {final_w_in:.2f} x {final_h_in:.2f} in (maximum with minimum margins {min_margin_frac*100:.0f}%).")
-        else:
-            print(f"Plot frame set to {final_w_in:.2f} x {final_h_in:.2f} in inside fixed canvas {fig_w_in:.2f} x {fig_h_in:.2f} in.")
-    except KeyboardInterrupt:
-        print("Canceled.")
-    except Exception as e:
-        print(f"Error resizing plot frame: {e}")
+        except Exception as e:
+            print(f"Error resizing plot frame: {e}")
 
 
 def resize_canvas(fig, ax):
-    try:
-        cur_w, cur_h = fig.get_size_inches()
-        bbox_before = ax.get_position()
-        frame_w_in_before = bbox_before.width * cur_w
-        frame_h_in_before = bbox_before.height * cur_h
-        print(f"Current canvas size: {cur_w:.2f} x {cur_h:.2f} in (frame {frame_w_in_before:.2f} x {frame_h_in_before:.2f} in)")
+    while True:
         try:
-            spec = input("Enter new canvas size (e.g. '8 6', '6x4', 'w=6 h=5', 'scale=1.2', q=cancel): ").strip().lower()
+            cur_w, cur_h = fig.get_size_inches()
+            bbox_before = ax.get_position()
+            frame_w_in_before = bbox_before.width * cur_w
+            frame_h_in_before = bbox_before.height * cur_h
+            print(f"Current canvas size: {cur_w:.2f} x {cur_h:.2f} in (frame {frame_w_in_before:.2f} x {frame_h_in_before:.2f} in)")
+            try:
+                spec = input("Enter new canvas size (e.g. '8 6', '6x4', 'w=6 h=5', 'scale=1.2', q=back): ").strip().lower()
+            except KeyboardInterrupt:
+                print("Canceled.")
+                return
+            if not spec or spec == 'q':
+                return
+            new_w, new_h = cur_w, cur_h
+            if 'scale=' in spec:
+                try:
+                    fct = float(spec.split('scale=')[1])
+                    new_w, new_h = cur_w * fct, cur_h * fct
+                except Exception:
+                    print("Invalid scale factor.")
+                    continue
+            else:
+                parts = spec.replace('x',' ').split()
+                kv = {}; nums = []
+                for p in parts:
+                    if '=' in p:
+                        k,v = p.split('=',1); kv[k.strip()] = v.strip()
+                    else:
+                        nums.append(p)
+                if kv:
+                    if 'w' in kv: new_w = float(kv['w'])
+                    if 'h' in kv: new_h = float(kv['h'])
+                elif len(nums)==2:
+                    new_w, new_h = float(nums[0]), float(nums[1])
+                elif len(nums)==1:
+                    new_w = float(nums[0]); aspect = cur_h/cur_w if cur_w else 1.0; new_h = new_w * aspect
+                else:
+                    print("Could not parse specification.")
+                    continue
+            min_size = 1.0
+            new_w = max(min_size, new_w)
+            new_h = max(min_size, new_h)
+            tol = 1e-3
+            same = hasattr(fig,'_last_canvas_size') and all(abs(a-b)<tol for a,b in zip(fig._last_canvas_size,(new_w,new_h)))
+            fig.set_size_inches(new_w, new_h, forward=True)
+            bbox_after = ax.get_position()
+            desired_w_frac = frame_w_in_before / new_w
+            desired_h_frac = frame_h_in_before / new_h
+            min_margin = 0.05
+            max_w_frac = 1 - 2*min_margin
+            max_h_frac = 1 - 2*min_margin
+            if desired_w_frac > max_w_frac:
+                desired_w_frac = max_w_frac
+            if desired_h_frac > max_h_frac:
+                desired_h_frac = max_h_frac
+            left = (1 - desired_w_frac) / 2
+            bottom = (1 - desired_h_frac) / 2
+            right = left + desired_w_frac
+            top = bottom + desired_h_frac
+            if right - left > 0.05 and top - bottom > 0.05:
+                fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
+            fig._last_canvas_size = (new_w, new_h)
+            bbox_final = ax.get_position()
+            final_frame_w_in = bbox_final.width * new_w
+            final_frame_h_in = bbox_final.height * new_h
+            if same:
+                print(f"Canvas unchanged ({new_w:.2f} x {new_h:.2f} in). Frame {final_frame_w_in:.2f} x {final_frame_h_in:.2f} in.")
+            else:
+                note = ""
+                if abs(final_frame_w_in - frame_w_in_before) > 1e-3 or abs(final_frame_h_in - frame_h_in_before) > 1e-3:
+                    note = " (clamped to fit)" if final_frame_w_in < frame_w_in_before or final_frame_h_in < frame_h_in_before else ""
+                print(f"Canvas resized to {new_w:.2f} x {new_h:.2f} in; frame preserved at {final_frame_w_in:.2f} x {final_frame_h_in:.2f} in{note} (was {frame_w_in_before:.2f} x {frame_h_in_before:.2f}).")
+            fig.canvas.draw_idle()
         except KeyboardInterrupt:
             print("Canceled.")
             return
-        if not spec or spec == 'q':
-            print("Canceled.")
-            return
-        new_w, new_h = cur_w, cur_h
-        if 'scale=' in spec:
-            try:
-                fct = float(spec.split('scale=')[1])
-                new_w, new_h = cur_w * fct, cur_h * fct
-            except Exception:
-                print("Invalid scale factor.")
-                return
-        else:
-            parts = spec.replace('x',' ').split()
-            kv = {}; nums = []
-            for p in parts:
-                if '=' in p:
-                    k,v = p.split('=',1); kv[k.strip()] = v.strip()
-                else:
-                    nums.append(p)
-            if kv:
-                if 'w' in kv: new_w = float(kv['w'])
-                if 'h' in kv: new_h = float(kv['h'])
-            elif len(nums)==2:
-                new_w, new_h = float(nums[0]), float(nums[1])
-            elif len(nums)==1:
-                new_w = float(nums[0]); aspect = cur_h/cur_w if cur_w else 1.0; new_h = new_w * aspect
-            else:
-                print("Could not parse specification.")
-                return
-        min_size = 1.0
-        new_w = max(min_size, new_w)
-        new_h = max(min_size, new_h)
-        tol = 1e-3
-        same = hasattr(fig,'_last_canvas_size') and all(abs(a-b)<tol for a,b in zip(fig._last_canvas_size,(new_w,new_h)))
-        fig.set_size_inches(new_w, new_h, forward=True)
-        bbox_after = ax.get_position()
-        desired_w_frac = frame_w_in_before / new_w
-        desired_h_frac = frame_h_in_before / new_h
-        min_margin = 0.05
-        max_w_frac = 1 - 2*min_margin
-        max_h_frac = 1 - 2*min_margin
-        if desired_w_frac > max_w_frac:
-            desired_w_frac = max_w_frac
-        if desired_h_frac > max_h_frac:
-            desired_h_frac = max_h_frac
-        left = (1 - desired_w_frac) / 2
-        bottom = (1 - desired_h_frac) / 2
-        right = left + desired_w_frac
-        top = bottom + desired_h_frac
-        if right - left > 0.05 and top - bottom > 0.05:
-            fig.subplots_adjust(left=left, right=right, bottom=bottom, top=top)
-        fig._last_canvas_size = (new_w, new_h)
-        bbox_final = ax.get_position()
-        final_frame_w_in = bbox_final.width * new_w
-        final_frame_h_in = bbox_final.height * new_h
-        if same:
-            print(f"Canvas unchanged ({new_w:.2f} x {new_h:.2f} in). Frame {final_frame_w_in:.2f} x {final_frame_h_in:.2f} in.")
-        else:
-            note = ""
-            if abs(final_frame_w_in - frame_w_in_before) > 1e-3 or abs(final_frame_h_in - frame_h_in_before) > 1e-3:
-                note = " (clamped to fit)" if final_frame_w_in < frame_w_in_before or final_frame_h_in < frame_h_in_before else ""
-            print(f"Canvas resized to {new_w:.2f} x {new_h:.2f} in; frame preserved at {final_frame_w_in:.2f} x {final_frame_h_in:.2f} in{note} (was {frame_w_in_before:.2f} x {frame_h_in_before:.2f}).")
-        fig.canvas.draw_idle()
-    except KeyboardInterrupt:
-        print("Canceled.")
-    except Exception as e:
-        print(f"Error resizing canvas: {e}")
+        except Exception as e:
+            print(f"Error resizing canvas: {e}")
 
 
 __all__ = [

@@ -1204,13 +1204,46 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             continue
         elif key == 'e':
             try:
-                fname = input("Export filename (default .svg if no extension, q=cancel): ").strip()
+                # List existing figure files
+                folder = os.getcwd()
+                fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
+                files = []
+                try:
+                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
+                except Exception:
+                    files = []
+                if files:
+                    print("Existing figure files:")
+                    for i, f in enumerate(files, 1):
+                        print(f"  {i}: {f}")
+                
+                fname = input("Export filename (default .svg if no extension) or number to overwrite (q=cancel): ").strip()
                 if not fname or fname.lower() == 'q':
                     _print_menu(); continue
-                root, ext = os.path.splitext(fname)
-                if ext == '':
-                    fname = fname + '.svg'
-                target = _confirm_overwrite(fname)
+                
+                # Check if user selected a number
+                already_confirmed = False
+                if fname.isdigit() and files:
+                    idx = int(fname)
+                    if 1 <= idx <= len(files):
+                        name = files[idx-1]
+                        yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
+                        if yn != 'y':
+                            _print_menu(); continue
+                        fname = name
+                        already_confirmed = True
+                    else:
+                        print("Invalid number.")
+                        _print_menu(); continue
+                else:
+                    root, ext = os.path.splitext(fname)
+                    if ext == '':
+                        fname = fname + '.svg'
+                
+                if already_confirmed:
+                    target = fname
+                else:
+                    target = _confirm_overwrite(fname)
                 if target:
                     # Remove numbering from legend labels before export
                     original_labels = {}
@@ -2247,6 +2280,9 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             _print_menu(); continue
         elif key == 'r':
             # Rename axis titles
+            print("Tip: Use LaTeX/mathtext for special characters:")
+            print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+            print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
             while True:
                 print("Rename titles: x=x-axis, ly=left y-axis, ry=right y-axis, q=back")
                 sub = input("Rename> ").strip().lower()

@@ -394,6 +394,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     # Update the ylabel object directly for consistent sizing
                     cbar.ax.yaxis.label.set_family(family)
                 except Exception: pass
+                # Update High/Low labels if they exist
+                if hasattr(fig, '_cbar_high_text'):
+                    try: fig._cbar_high_text.set_family(family)
+                    except Exception: pass
+                if hasattr(fig, '_cbar_low_text'):
+                    try: fig._cbar_low_text.set_family(family)
+                    except Exception: pass
             if size is not None:
                 for t in cbar.ax.get_yticklabels():
                     try: t.set_size(size)
@@ -402,6 +409,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     # Update the ylabel object directly to match axis label sizes exactly
                     cbar.ax.yaxis.label.set_size(size)
                 except Exception: pass
+                # Update High/Low labels if they exist
+                if hasattr(fig, '_cbar_high_text'):
+                    try: fig._cbar_high_text.set_size(size)
+                    except Exception: pass
+                if hasattr(fig, '_cbar_low_text'):
+                    try: fig._cbar_low_text.set_size(size)
+                    except Exception: pass
         
         # Update title distances after font size changes (unified UI positioning functions)
         for a in axes:
@@ -1044,13 +1058,46 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         if cmd == 'e':
             try:
                 import os
-                fname = input("Export filename (default .svg if no extension, q=cancel): ").strip()
+                # List existing figure files
+                folder = os.getcwd()
+                fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
+                files = []
+                try:
+                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
+                except Exception:
+                    files = []
+                if files:
+                    print("Existing figure files:")
+                    for i, f in enumerate(files, 1):
+                        print(f"  {i}: {f}")
+                
+                fname = input("Export filename (default .svg if no extension) or number to overwrite (q=cancel): ").strip()
                 if not fname or fname.lower() == 'q':
                     print_menu(); continue
-                if not os.path.splitext(fname)[1]:
-                    fname += '.svg'
+                
+                # Check if user selected a number
+                already_confirmed = False
+                if fname.isdigit() and files:
+                    idx = int(fname)
+                    if 1 <= idx <= len(files):
+                        name = files[idx-1]
+                        yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
+                        if yn != 'y':
+                            print_menu(); continue
+                        fname = name
+                        already_confirmed = True
+                    else:
+                        print("Invalid number.")
+                        print_menu(); continue
+                else:
+                    if not os.path.splitext(fname)[1]:
+                        fname += '.svg'
+                
                 from .utils import _confirm_overwrite as _co
-                target = _co(fname)
+                if already_confirmed:
+                    target = fname
+                else:
+                    target = _co(fname)
                 if not target:
                     print_menu(); continue
                 _, ext = os.path.splitext(target)
@@ -1098,12 +1145,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print(f"Error toggling crosshair: {e}")
             print_menu(); continue
         if cmd == 'v':
-            # Toggle colorbar and/or EC panel visibility
+            # Toggle colorbar and/or EC panel visibility, or change colorbar label mode
             _snapshot("toggle-visibility")
             try:
                 if ec_ax is not None:
-                    # Dual-panel mode: toggle both colorbar and EC
-                    print("Toggle: 1=colorbar, 2=EC panel, 3=both, q=cancel")
+                    # Dual-panel mode: toggle both colorbar and EC, or change colorbar labels
+                    print("Toggle: 1=colorbar, 2=EC panel, 3=both, 4=colorbar labels, q=cancel")
                     choice = input("v> ").strip().lower()
                     if choice == '1':
                         # Toggle colorbar
@@ -1123,13 +1170,102 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cbar.ax.set_visible(new_vis)
                         ec_ax.set_visible(new_vis)
                         print(f"Colorbar & EC panel: {'shown' if new_vis else 'hidden'}")
+                    elif choice == '4':
+                        # Toggle colorbar label mode: normal ticks vs High/Low
+                        current_mode = getattr(fig, '_colorbar_label_mode', 'normal')
+                        if current_mode == 'normal':
+                            # Switch to High/Low mode
+                            # Hide tick labels
+                            cbar.ax.yaxis.set_ticklabels([])
+                            # Add High and Low text labels
+                            import matplotlib.pyplot as plt
+                            # Remove existing High/Low labels if any
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                            # Get current font settings
+                            font_size = plt.rcParams.get('font.size', 10)
+                            font_family = plt.rcParams.get('font.family', ['sans-serif'])
+                            # Add new labels outside the colorbar (above and below)
+                            fig._cbar_high_text = cbar.ax.text(0.5, 1.02, 'High', ha='center', va='bottom',
+                                                                transform=cbar.ax.transAxes,
+                                                                fontsize=font_size, fontfamily=font_family)
+                            fig._cbar_low_text = cbar.ax.text(0.5, -0.02, 'Low', ha='center', va='top',
+                                                               transform=cbar.ax.transAxes,
+                                                               fontsize=font_size, fontfamily=font_family)
+                            fig._colorbar_label_mode = 'highlow'
+                            print("Colorbar labels: High/Low mode")
+                        else:
+                            # Switch back to normal tick labels
+                            cbar.ax.yaxis.set_ticklabels([])  # Reset to auto
+                            cbar.ax.yaxis.set_major_formatter(plt.ScalarFormatter())
+                            # Remove High/Low labels
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                                delattr(fig, '_cbar_high_text')
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                                delattr(fig, '_cbar_low_text')
+                            fig._colorbar_label_mode = 'normal'
+                            print("Colorbar labels: Normal mode")
                     elif choice != 'q':
                         print("Invalid choice")
                 else:
-                    # Operando-only mode: toggle colorbar only
-                    cb_vis = cbar.ax.get_visible()
-                    cbar.ax.set_visible(not cb_vis)
-                    print(f"Colorbar: {'hidden' if cb_vis else 'shown'}")
+                    # Operando-only mode: toggle colorbar or change label mode
+                    print("Toggle: 1=colorbar visibility, 2=colorbar labels, q=cancel")
+                    choice = input("v> ").strip().lower()
+                    if choice == '1':
+                        cb_vis = cbar.ax.get_visible()
+                        cbar.ax.set_visible(not cb_vis)
+                        print(f"Colorbar: {'hidden' if cb_vis else 'shown'}")
+                    elif choice == '2':
+                        # Toggle colorbar label mode
+                        current_mode = getattr(fig, '_colorbar_label_mode', 'normal')
+                        if current_mode == 'normal':
+                            # Switch to High/Low mode
+                            import matplotlib.pyplot as plt
+                            cbar.ax.yaxis.set_ticklabels([])
+                            # Remove existing High/Low labels if any
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                            # Get current font settings
+                            font_size = plt.rcParams.get('font.size', 10)
+                            font_family = plt.rcParams.get('font.family', ['sans-serif'])
+                            # Add new labels outside the colorbar (above and below)
+                            fig._cbar_high_text = cbar.ax.text(0.5, 1.02, 'High', ha='center', va='bottom',
+                                                                transform=cbar.ax.transAxes,
+                                                                fontsize=font_size, fontfamily=font_family)
+                            fig._cbar_low_text = cbar.ax.text(0.5, -0.02, 'Low', ha='center', va='top',
+                                                               transform=cbar.ax.transAxes,
+                                                               fontsize=font_size, fontfamily=font_family)
+                            fig._colorbar_label_mode = 'highlow'
+                            print("Colorbar labels: High/Low mode")
+                        else:
+                            # Switch back to normal
+                            import matplotlib.pyplot as plt
+                            cbar.ax.yaxis.set_ticklabels([])
+                            cbar.ax.yaxis.set_major_formatter(plt.ScalarFormatter())
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                                delattr(fig, '_cbar_high_text')
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                                delattr(fig, '_cbar_low_text')
+                            fig._colorbar_label_mode = 'normal'
+                            print("Colorbar labels: Normal mode")
+                    elif choice != 'q':
+                        print("Invalid choice")
                 fig.canvas.draw_idle()
             except Exception as e:
                 print(f"Error toggling visibility: {e}")
@@ -1479,7 +1615,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     is_ec = (axis is ec_ax)
                     is_operando = (axis is ax)
                     
-                    # If no changed_sides specified, reposition all sides (for load style, etc.)
+                    # If changed_sides is None, reposition all sides (for load style, etc.)
+                    # If changed_sides is an empty set, don't reposition anything (e.g., spine/tick toggles)
                     if changed_sides is None:
                         changed_sides = {'bottom', 'top', 'left', 'right'}
                     
@@ -1749,7 +1886,8 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             ts['mry'] = bool(wasd['right']['minor'])
                     if changed:
                         _snapshot("toggle-ticks")
-                        _apply_wasd_axis(target, wasd, changed_sides if changed_sides else None)
+                        # Pass changed_sides (even if empty) to avoid repositioning all sides unnecessarily
+                        _apply_wasd_axis(target, wasd, changed_sides)
                         # Single draw at the end after all positioning is complete
                         try:
                             fig.canvas.draw()
@@ -2272,6 +2410,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     cb_visible = bool(cbar.ax.get_visible())
                     ec_visible = bool(ec_ax.get_visible()) if ec_ax is not None else None
                     
+                    # Get colorbar label mode
+                    cb_label_mode = getattr(fig, '_colorbar_label_mode', 'normal')
+                    
                     # Capture labelpad values (for title positioning)
                     op_labelpads = {
                         'x': getattr(ax.xaxis, 'labelpad', None),
@@ -2286,7 +2427,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cfg = {
                             'kind': 'operando_ec_style',
                             'version': 2,
-                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
+                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible, 'cb_label_mode': cb_label_mode},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
                             'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range, 'labelpads': op_labelpads},
                             'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible, 'labelpads': ec_labelpads},
@@ -2297,7 +2438,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cfg = {
                             'kind': 'operando_ec_style_geom',
                             'version': 2,
-                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible},
+                            'figure': {'canvas_size': [fig_w, fig_h], 'cb_visible': cb_visible, 'cb_label_mode': cb_label_mode},
                             'geometry': {'op_w_in': ax_w_in, 'op_h_in': ax_h_in, 'ec_w_in': ec_w_in},
                             'operando': {'cmap': cmap_name, 'wasd_state': op_wasd_state, 'spines': op_spines, 'ticks': {'widths': op_ticks}, 'y_reversed': op_reversed, 'intensity_range': intensity_range, 'labelpads': op_labelpads},
                             'ec': {'wasd_state': ec_wasd_state, 'spines': ec_spines, 'ticks': {'widths': ec_ticks}, 'curve': ec_curve, 'y_reversed': ec_reversed, 'y_mode': ec_y_mode, 'ion_params': ion_params, 'visible': ec_visible, 'labelpads': ec_labelpads},
@@ -2787,6 +2928,45 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cb_visible = fig_cfg.get('cb_visible')
                         if cb_visible is not None:
                             cbar.ax.set_visible(bool(cb_visible))
+                        
+                        # Restore colorbar label mode
+                        cb_label_mode = fig_cfg.get('cb_label_mode', 'normal')
+                        if cb_label_mode == 'highlow':
+                            # Switch to High/Low mode
+                            import matplotlib.pyplot as plt
+                            cbar.ax.yaxis.set_ticklabels([])
+                            # Remove existing High/Low labels if any
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                            # Get current font settings
+                            font_size = plt.rcParams.get('font.size', 10)
+                            font_family = plt.rcParams.get('font.family', ['sans-serif'])
+                            # Add new labels outside the colorbar (above and below)
+                            fig._cbar_high_text = cbar.ax.text(0.5, 1.02, 'High', ha='center', va='bottom',
+                                                                transform=cbar.ax.transAxes,
+                                                                fontsize=font_size, fontfamily=font_family)
+                            fig._cbar_low_text = cbar.ax.text(0.5, -0.02, 'Low', ha='center', va='top',
+                                                               transform=cbar.ax.transAxes,
+                                                               fontsize=font_size, fontfamily=font_family)
+                            fig._colorbar_label_mode = 'highlow'
+                        else:
+                            # Ensure normal mode
+                            fig._colorbar_label_mode = 'normal'
+                            # Remove High/Low labels if they exist
+                            if hasattr(fig, '_cbar_high_text'):
+                                try: fig._cbar_high_text.remove()
+                                except: pass
+                                try: delattr(fig, '_cbar_high_text')
+                                except: pass
+                            if hasattr(fig, '_cbar_low_text'):
+                                try: fig._cbar_low_text.remove()
+                                except: pass
+                                try: delattr(fig, '_cbar_low_text')
+                                except: pass
                     except Exception:
                         pass
                     try:
@@ -2866,6 +3046,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 if not hasattr(ax, '_custom_labels'):
                     ax._custom_labels = {'x': None, 'y': None}
                 print("Rename Operando Axes: x=rename X label, y=rename Y label, q=back")
+                print("Tip: Use LaTeX/mathtext for special characters:")
+                print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                 while True:
                     sub = input("or> ").strip().lower()
                     if not sub:
@@ -2915,6 +3098,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 if not hasattr(ec_ax, '_custom_labels'):
                     ec_ax._custom_labels = {'x': None, 'y_time': None, 'y_ions': None}
                 print("Rename EC Axes: x=rename X label, y=rename Y label (mode-aware), q=back")
+                print("Tip: Use LaTeX/mathtext for special characters:")
+                print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                 while True:
                     sub = input("er> ").strip().lower()
                     if not sub:

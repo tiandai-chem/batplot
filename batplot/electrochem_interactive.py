@@ -842,15 +842,50 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
         elif key == 'e':
             # Export current figure to a file; default extension .svg if missing
             try:
-                fname = input("Export filename (default .svg if no extension, q=cancel): ").strip()
+                # List existing figure files
+                folder = os.getcwd()
+                fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
+                files = []
+                try:
+                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
+                except Exception:
+                    files = []
+                if files:
+                    print("Existing figure files:")
+                    for i, f in enumerate(files, 1):
+                        print(f"  {i}: {f}")
+                
+                fname = input("Export filename (default .svg if no extension) or number to overwrite (q=cancel): ").strip()
                 if not fname or fname.lower() == 'q':
                     _print_menu(len(all_cycles), is_dqdv)
                     continue
-                root, ext = os.path.splitext(fname)
-                if ext == '':
-                    fname = fname + '.svg'
+                
+                # Check if user selected a number
+                already_confirmed = False
+                if fname.isdigit() and files:
+                    idx = int(fname)
+                    if 1 <= idx <= len(files):
+                        name = files[idx-1]
+                        yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
+                        if yn != 'y':
+                            _print_menu(len(all_cycles), is_dqdv)
+                            continue
+                        fname = name
+                        already_confirmed = True
+                    else:
+                        print("Invalid number.")
+                        _print_menu(len(all_cycles), is_dqdv)
+                        continue
+                else:
+                    root, ext = os.path.splitext(fname)
+                    if ext == '':
+                        fname = fname + '.svg'
+                
                 try:
-                    target = _confirm_overwrite(fname)
+                    if already_confirmed:
+                        target = fname
+                    else:
+                        target = _confirm_overwrite(fname)
                     if target:
                         # If exporting SVG, make background transparent for PowerPoint
                         _, ext2 = os.path.splitext(target)
@@ -1485,6 +1520,9 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
         elif key == 'r':
             # Rename axis labels
             try:
+                print("Tip: Use LaTeX/mathtext for special characters:")
+                print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                 while True:
                     print("Rename axis: x, y, both, q=back")
                     sub = input("Rename> ").strip().lower()

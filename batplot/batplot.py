@@ -1409,6 +1409,29 @@ def batplot_main() -> int:
             spm = fig_cfg.get('subplot_margins')
             if spm and all(k in spm for k in ('left','right','bottom','top')):
                 fig.subplots_adjust(left=spm['left'], right=spm['right'], bottom=spm['bottom'], top=spm['top'])
+            
+            # Restore exact frame size if stored (for precision)
+            frame_size = fig_cfg.get('frame_size')
+            if frame_size and isinstance(frame_size, (list, tuple)) and len(frame_size) == 2:
+                target_w_in, target_h_in = map(float, frame_size)
+                # Get current canvas size
+                canvas_w_in, canvas_h_in = fig.get_size_inches()
+                # Calculate needed fractions to achieve exact frame size
+                if canvas_w_in > 0 and canvas_h_in > 0:
+                    # Get current position to preserve centering
+                    bbox = ax.get_position()
+                    center_x = (bbox.x0 + bbox.x1) / 2.0
+                    center_y = (bbox.y0 + bbox.y1) / 2.0
+                    # Calculate new fractions
+                    new_w_frac = target_w_in / canvas_w_in
+                    new_h_frac = target_h_in / canvas_h_in
+                    # Reposition to maintain centering
+                    new_left = center_x - new_w_frac / 2.0
+                    new_right = center_x + new_w_frac / 2.0
+                    new_bottom = center_y - new_h_frac / 2.0
+                    new_top = center_y + new_h_frac / 2.0
+                    # Apply
+                    fig.subplots_adjust(left=new_left, right=new_right, bottom=new_bottom, top=new_top)
         except Exception:
             pass
         # Font
@@ -1431,13 +1454,13 @@ def batplot_main() -> int:
         try:
             tw = sess.get('tick_widths', {})
             if tw.get('x_major') is not None:
-                ax.tick_params(axis='x', which='major', width=tw['x_major'])
+                ax.tick_params(axis='x', which='major', width=float(tw['x_major']))
             if tw.get('x_minor') is not None:
-                ax.tick_params(axis='x', which='minor', width=tw['x_minor'])
+                ax.tick_params(axis='x', which='minor', width=float(tw['x_minor']))
             if tw.get('y_major') is not None:
-                ax.tick_params(axis='y', which='major', width=tw['y_major'])
+                ax.tick_params(axis='y', which='major', width=float(tw['y_major']))
             if tw.get('y_minor') is not None:
-                ax.tick_params(axis='y', which='minor', width=tw['y_minor'])
+                ax.tick_params(axis='y', which='minor', width=float(tw['y_minor']))
         except Exception:
             pass
         # Tick lengths restore
@@ -1457,6 +1480,78 @@ def batplot_main() -> int:
                 fig._tick_lengths['minor'] = minor_len
         except Exception:
             pass
+        
+        # Restore WASD state (spine, ticks, labels, title visibility for all 4 sides)
+        try:
+            wasd = sess.get('wasd_state', {})
+            if wasd:
+                # Store the xlabel/ylabel before applying WASD (to restore hidden titles later if needed)
+                stored_xlabel = ax.get_xlabel()
+                stored_ylabel = ax.get_ylabel()
+                
+                # Apply spine visibility
+                for side in ('top', 'bottom', 'left', 'right'):
+                    state = wasd.get(side, {})
+                    sp = ax.spines.get(side)
+                    if sp and 'spine' in state:
+                        sp.set_visible(bool(state['spine']))
+                
+                # Apply tick and label visibility
+                for side in ('top', 'bottom', 'left', 'right'):
+                    state = wasd.get(side, {})
+                    if side in ('top', 'bottom'):
+                        # X-axis ticks
+                        tick_key = 'tick1On' if side == 'top' else 'tick2On'
+                        label_key = 'label1On' if side == 'top' else 'label2On'
+                        if 'ticks' in state:
+                            ax.tick_params(axis='x', which='major', **{tick_key: bool(state['ticks'])})
+                        if 'labels' in state:
+                            ax.tick_params(axis='x', which='major', **{label_key: bool(state['labels'])})
+                        if 'minor' in state:
+                            ax.tick_params(axis='x', which='minor', **{tick_key: bool(state['minor'])})
+                    else:
+                        # Y-axis ticks
+                        tick_key = 'tick1On' if side == 'left' else 'tick2On'
+                        label_key = 'label1On' if side == 'left' else 'label2On'
+                        if 'ticks' in state:
+                            ax.tick_params(axis='y', which='major', **{tick_key: bool(state['ticks'])})
+                        if 'labels' in state:
+                            ax.tick_params(axis='y', which='major', **{label_key: bool(state['labels'])})
+                        if 'minor' in state:
+                            ax.tick_params(axis='y', which='minor', **{tick_key: bool(state['minor'])})
+                
+                # Apply title visibility - CRITICAL: Check title state before restoring labels
+                # Bottom xlabel
+                bottom_title_on = wasd.get('bottom', {}).get('title', True)
+                if bottom_title_on:
+                    ax.set_xlabel(stored_xlabel)
+                else:
+                    ax.set_xlabel('')  # Hidden by user via s5
+                    # Store the hidden label for later restoration
+                    if stored_xlabel:
+                        setattr(ax, '_stored_xlabel', stored_xlabel)
+                
+                # Left ylabel  
+                left_title_on = wasd.get('left', {}).get('title', True)
+                if left_title_on:
+                    ax.set_ylabel(stored_ylabel)
+                else:
+                    ax.set_ylabel('')  # Hidden by user via a5
+                    # Store the hidden label for later restoration
+                    if stored_ylabel:
+                        setattr(ax, '_stored_ylabel', stored_ylabel)
+                
+                # Top xlabel (if exists)
+                top_title_on = wasd.get('top', {}).get('title', False)
+                setattr(ax, '_top_xlabel_on', top_title_on)
+                
+                # Right ylabel (if exists)
+                right_title_on = wasd.get('right', {}).get('title', False)
+                setattr(ax, '_right_ylabel_on', right_title_on)
+        except Exception as e:
+            # Don't fail session load if WASD restoration fails
+            print(f"Warning: Could not fully restore WASD state: {e}")
+        
         # Rebuild label texts
         for i, lab in enumerate(labels_list):
             txt = ax.text(1.0, 1.0, f"{i+1}: {lab}", ha='right', va='top', transform=ax.transAxes,

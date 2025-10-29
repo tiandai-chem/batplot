@@ -27,7 +27,9 @@ from .readers import robust_loadtxt_skipheader, read_mpt_file
 
 SUPPORTED_EXT = {".xy", ".xye", ".qye", ".dat"}
 # Standard diffraction file extensions that have known x-axis meanings
-KNOWN_DIFFRACTION_EXT = {".xy", ".xye", ".qye", ".dat"}
+KNOWN_DIFFRACTION_EXT = {".xy", ".xye", ".qye", ".dat", ".nor", ".chik", ".chir"}
+# File types to exclude from operando data (system/session files and electrochemistry)
+EXCLUDED_EXT = {".mpt", ".pkl", ".json", ".txt", ".md", ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".svg", ".DS_Store"}
 
 _two_theta_re = re.compile(r"2[tT]heta|2th", re.IGNORECASE)
 _q_re = re.compile(r"^q$", re.IGNORECASE)
@@ -98,16 +100,23 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     p = Path(folder)
     if not p.is_dir():
         raise FileNotFoundError(f"Not a directory: {folder}")
-    # First try to find known diffraction files (filter out macOS resource fork files starting with ._)
-    files = sorted([f for f in p.iterdir() if f.suffix.lower() in KNOWN_DIFFRACTION_EXT and not f.name.startswith("._")], key=_natural_sort_key)
-    has_unknown_ext = False
-    # If no known files found, accept any file extension (except .mpt which is for electrochemistry)
+    
+    # Accept all file types except those in EXCLUDED_EXT
+    # Filter out macOS resource fork files starting with ._
+    # Also check that filename is not .DS_Store (which has no extension)
+    files = sorted([f for f in p.iterdir() 
+                    if f.is_file() 
+                    and f.suffix.lower() not in EXCLUDED_EXT 
+                    and f.name != ".DS_Store"
+                    and not f.name.startswith("._")], 
+                   key=_natural_sort_key)
     if not files:
-        files = sorted([f for f in p.iterdir() if f.is_file() and f.suffix.lower() != ".mpt" and not f.name.startswith("._")], key=_natural_sort_key)
-        has_unknown_ext = True
-        if not files:
-            raise FileNotFoundError("No data files found in folder (excluding .mpt files)")
-    any_qye = any(f.suffix.lower()==".qye" for f in files)
+        raise FileNotFoundError("No data files found in folder (excluding system/session files)")
+    
+    # Check if we have .qye files to help determine axis mode
+    any_qye = any(f.suffix.lower() == ".qye" for f in files)
+    # Since we accept all file types now, has_unknown_ext is effectively always True unless all are in KNOWN_DIFFRACTION_EXT
+    has_unknown_ext = not all(f.suffix.lower() in KNOWN_DIFFRACTION_EXT for f in files)
     axis_mode = _infer_axis_mode(args, any_qye, has_unknown_ext)
     wl = getattr(args, 'wl', None)
 
@@ -159,7 +168,7 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
 
     if has_ec:
         # Wider canvas to accommodate side-by-side plots
-        fig = plt.figure(figsize=(10, 6))
+        fig = plt.figure(figsize=(11, 6))
         gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3.5, 1.2], wspace=0.25)
         ax = fig.add_subplot(gs[0, 0])
     else:

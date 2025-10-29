@@ -1213,6 +1213,29 @@ def load_ec_session(filename: str):
         spm = sess.get('subplot_margins', {})
         if all(k in spm for k in ('left','right','bottom','top')):
             fig.subplots_adjust(left=float(spm['left']), right=float(spm['right']), bottom=float(spm['bottom']), top=float(spm['top']))
+        
+        # Restore exact frame size if stored (for precision)
+        frame_size = sess.get('frame_size')
+        if frame_size and isinstance(frame_size, (list, tuple)) and len(frame_size) == 2:
+            target_w_in, target_h_in = map(float, frame_size)
+            # Get current canvas size
+            canvas_w_in, canvas_h_in = fig.get_size_inches()
+            # Calculate needed fractions to achieve exact frame size
+            if canvas_w_in > 0 and canvas_h_in > 0:
+                # Get current position to preserve centering
+                bbox = ax.get_position()
+                center_x = (bbox.x0 + bbox.x1) / 2.0
+                center_y = (bbox.y0 + bbox.y1) / 2.0
+                # Calculate new fractions
+                new_w_frac = target_w_in / canvas_w_in
+                new_h_frac = target_h_in / canvas_h_in
+                # Reposition to maintain centering
+                new_left = center_x - new_w_frac / 2.0
+                new_right = center_x + new_w_frac / 2.0
+                new_bottom = center_y - new_h_frac / 2.0
+                new_top = center_y + new_h_frac / 2.0
+                # Apply
+                fig.subplots_adjust(left=new_left, right=new_right, bottom=new_bottom, top=new_top)
     except Exception:
         pass
 
@@ -1273,10 +1296,12 @@ def load_ec_session(filename: str):
             cycle_lines[cyc] = cyc_entry
 
     # Axis labels/limits/scales
+    # Store the labels first, then apply WASD state before actually setting them
     try:
         axis = sess.get('axis', {})
-        ax.set_xlabel(axis.get('xlabel') or '')
-        ax.set_ylabel(axis.get('ylabel') or '')
+        stored_xlabel = axis.get('xlabel') or ''
+        stored_ylabel = axis.get('ylabel') or ''
+        
         # Scales first
         try:
             if axis.get('xscale'): ax.set_xscale(axis.get('xscale'))
@@ -1285,21 +1310,14 @@ def load_ec_session(filename: str):
             pass
         if axis.get('xlim'): ax.set_xlim(*axis['xlim'])
         if axis.get('ylim'): ax.set_ylim(*axis['ylim'])
-        # Label pads
-        try:
-            lp = axis.get('x_labelpad')
-            if lp is not None:
-                ax.set_xlabel(ax.get_xlabel(), labelpad=float(lp))
-        except Exception:
-            pass
-        try:
-            lp = axis.get('y_labelpad')
-            if lp is not None:
-                ax.set_ylabel(ax.get_ylabel(), labelpad=float(lp))
-        except Exception:
-            pass
+        # Label pads saved for later
+        x_labelpad = axis.get('x_labelpad')
+        y_labelpad = axis.get('y_labelpad')
     except Exception:
-        pass
+        stored_xlabel = ''
+        stored_ylabel = ''
+        x_labelpad = None
+        y_labelpad = None
 
     # Spines
     try:
@@ -1372,10 +1390,10 @@ def load_ec_session(filename: str):
         tw = sess.get('tick_widths', {})
         if tw:
             try:
-                if tw.get('x_major') is not None: ax.tick_params(axis='x', which='major', width=tw['x_major'])
-                if tw.get('x_minor') is not None: ax.tick_params(axis='x', which='minor', width=tw['x_minor'])
-                if tw.get('y_major') is not None: ax.tick_params(axis='y', which='major', width=tw['y_major'])
-                if tw.get('y_minor') is not None: ax.tick_params(axis='y', which='minor', width=tw['y_minor'])
+                if tw.get('x_major') is not None: ax.tick_params(axis='x', which='major', width=float(tw['x_major']))
+                if tw.get('x_minor') is not None: ax.tick_params(axis='x', which='minor', width=float(tw['x_minor']))
+                if tw.get('y_major') is not None: ax.tick_params(axis='y', which='major', width=float(tw['y_major']))
+                if tw.get('y_minor') is not None: ax.tick_params(axis='y', which='minor', width=float(tw['y_minor']))
             except Exception:
                 pass
         
@@ -1928,6 +1946,29 @@ def load_cpc_session(filename: str):
                     bottom=margins.get('bottom', 0.11),
                     top=margins.get('top', 0.88)
                 )
+            
+            # Restore exact frame size if stored (for precision)
+            frame_size = fig_meta.get('frame_size')
+            if frame_size and isinstance(frame_size, (list, tuple)) and len(frame_size) == 2:
+                target_w_in, target_h_in = map(float, frame_size)
+                # Get current canvas size
+                canvas_w_in, canvas_h_in = fig.get_size_inches()
+                # Calculate needed fractions to achieve exact frame size
+                if canvas_w_in > 0 and canvas_h_in > 0:
+                    # Get current position to preserve centering
+                    bbox = ax.get_position()
+                    center_x = (bbox.x0 + bbox.x1) / 2.0
+                    center_y = (bbox.y0 + bbox.y1) / 2.0
+                    # Calculate new fractions
+                    new_w_frac = target_w_in / canvas_w_in
+                    new_h_frac = target_h_in / canvas_h_in
+                    # Reposition to maintain centering
+                    new_left = center_x - new_w_frac / 2.0
+                    new_right = center_x + new_w_frac / 2.0
+                    new_bottom = center_y - new_h_frac / 2.0
+                    new_top = center_y + new_h_frac / 2.0
+                    # Apply
+                    fig.subplots_adjust(left=new_left, right=new_right, bottom=new_bottom, top=new_top)
         except Exception:
             pass
         
@@ -1984,6 +2025,25 @@ def load_cpc_session(filename: str):
                     ax2.yaxis.set_minor_locator(AutoMinorLocator())
                     ax2.yaxis.set_minor_formatter(NullFormatter())
                     ax2.tick_params(axis='y', which='minor', right=True)
+        except Exception:
+            pass
+        
+        # Restore tick widths (version 2+)
+        try:
+            tw = sess.get('tick_widths', {})
+            if tw:
+                if tw.get('x_major') is not None:
+                    ax.tick_params(axis='x', which='major', width=float(tw['x_major']))
+                if tw.get('x_minor') is not None:
+                    ax.tick_params(axis='x', which='minor', width=float(tw['x_minor']))
+                if tw.get('ly_major') is not None:
+                    ax.tick_params(axis='y', which='major', width=float(tw['ly_major']))
+                if tw.get('ly_minor') is not None:
+                    ax.tick_params(axis='y', which='minor', width=float(tw['ly_minor']))
+                if tw.get('ry_major') is not None:
+                    ax2.tick_params(axis='y', which='major', width=float(tw['ry_major']))
+                if tw.get('ry_minor') is not None:
+                    ax2.tick_params(axis='y', which='minor', width=float(tw['ry_minor']))
         except Exception:
             pass
         

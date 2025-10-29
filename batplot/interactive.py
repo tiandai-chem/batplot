@@ -555,7 +555,8 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
 
     def toggle_crosshair():
         if not crosshair['active']:
-            if not use_Q:
+            # Only ask for wavelength if it's diffraction data and not using Q
+            if is_diffraction and not use_Q:
                 try:
                     wl_in = input("Enter wavelength in Å for Q,d display (blank=skip, q=cancel): ").strip()
                     if wl_in.lower() == 'q':
@@ -585,28 +586,33 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 vline.set_xdata([x, x])
                 hline.set_ydata([y, y])
 
-                if use_Q:
-                    Q = x
-                    if Q != 0:
-                        d = 2 * np.pi / Q
-                        txt.set_text(f"Q={Q:.6g}\nd={d:.6g} Å\ny={y:.6g}")
-                    else:
-                        txt.set_text(f"Q={Q:.6g}\nd=∞\ny={y:.6g}")
-                elif use_r:
-                    txt.set_text(f"r={x:.6g} Å\ny={y:.6g}")
-                else:
-                    # 2θ mode
-                    if crosshair['wavelength'] is not None:
-                        lam = crosshair['wavelength']
-                        theta_rad = np.radians(x / 2.0)
-                        Q = 4 * np.pi * np.sin(theta_rad) / lam
+                # For diffraction data, show Q/d calculations
+                if is_diffraction:
+                    if use_Q:
+                        Q = x
                         if Q != 0:
                             d = 2 * np.pi / Q
-                            txt.set_text(f"2θ={x:.6g}°\nQ={Q:.6g}\nd={d:.6g} Å\ny={y:.6g}")
+                            txt.set_text(f"Q={Q:.6g}\nd={d:.6g} Å\ny={y:.6g}")
                         else:
-                            txt.set_text(f"2θ={x:.6g}°\nQ=0\nd=∞\ny={y:.6g}")
+                            txt.set_text(f"Q={Q:.6g}\nd=∞\ny={y:.6g}")
+                    elif use_r:
+                        txt.set_text(f"r={x:.6g} Å\ny={y:.6g}")
                     else:
-                        txt.set_text(f"2θ={x:.6g}°\ny={y:.6g}")
+                        # 2θ mode
+                        if crosshair['wavelength'] is not None:
+                            lam = crosshair['wavelength']
+                            theta_rad = np.radians(x / 2.0)
+                            Q = 4 * np.pi * np.sin(theta_rad) / lam
+                            if Q != 0:
+                                d = 2 * np.pi / Q
+                                txt.set_text(f"2θ={x:.6g}°\nQ={Q:.6g}\nd={d:.6g} Å\ny={y:.6g}")
+                            else:
+                                txt.set_text(f"2θ={x:.6g}°\nQ=0\nd=∞\ny={y:.6g}")
+                        else:
+                            txt.set_text(f"2θ={x:.6g}°\ny={y:.6g}")
+                else:
+                    # For non-diffraction data, just show x and y values
+                    txt.set_text(f"x={x:.6g}\ny={y:.6g}")
 
                 fig.canvas.draw_idle()
 
@@ -1013,9 +1019,6 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             restore_state()
             continue
         elif key == 'n':
-            if not is_diffraction:
-                print("Crosshair disabled for non-diffraction data (allowed only for 2θ or Q).")
-                continue
             try:
                 toggle_crosshair()
             except Exception as e:
@@ -1318,6 +1321,9 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     if mode == '':
                         continue
                     if mode == 'c':
+                        print("Tip: Use LaTeX/mathtext for special characters:")
+                        print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                        print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                         idx_in = input("Curve number to rename (q=cancel): ").strip()
                         if not idx_in or idx_in.lower() == 'q':
                             print("Canceled.")
@@ -1354,6 +1360,9 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 print("Index out of range."); continue
                         except ValueError:
                             print("Bad index."); continue
+                        print("Tip: Use LaTeX/mathtext for special characters:")
+                        print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                        print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                         new_name = input("New CIF tick label (q=cancel): ")
                         if not new_name or new_name.lower()=='q':
                             print("Canceled."); continue
@@ -1378,7 +1387,10 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         if _bp is not None:
                             setattr(_bp, 'cif_extend_suspended', False)
                     elif mode in ('x','y'):
-                        print("Enter new axis label (q=cancel). Prefer mathtext for superscripts:")
+                        print("Enter new axis label (q=cancel).")
+                        print("Tip: Use LaTeX/mathtext for special characters:")
+                        print("  Subscript: H$_2$O → H₂O  |  Superscript: m$^2$ → m²")
+                        print("  Greek: $\\alpha$, $\\beta$  |  Angstrom: $\\AA$ → Å")
                         new_axis = input("New axis label: ")
                         if not new_axis or new_axis.lower() == 'q':
                             print("Canceled.")
@@ -1514,103 +1526,107 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error rearranging curves: {e}")
         elif key == 'x':
-            try:
-                rng = input("Enter new X range (min max) or 'full' (q=cancel): ").strip()
-                if not rng or rng.lower() == 'q':
-                    print("Canceled.")
-                    continue
-                push_state("xrange")
-                if rng.lower() == 'full':
-                    new_min = min(xf.min() for xf in x_full_list if xf.size)
-                    new_max = max(xf.max() for xf in x_full_list if xf.size)
-                else:
-                    new_min, new_max = map(float, rng.split())
-                ax.set_xlim(new_min, new_max)
-                for i in range(len(labels)):
-                    xf = x_full_list[i]; yf_raw = raw_y_full_list[i]
-                    mask = (xf>=new_min) & (xf<=new_max)
-                    x_sub = xf[mask]; y_sub_raw = yf_raw[mask]
-                    if x_sub.size == 0:
-                        ax.lines[i].set_data([], [])
-                        y_data_list[i] = np.array([]); orig_y[i] = np.array([]); continue
-                    # Auto-normalize for --stack mode, or explicit --norm flag
-                    should_normalize = args.stack or getattr(args, 'norm', False)
-                    if should_normalize:
-                        if y_sub_raw.size:
-                            y_min = float(y_sub_raw.min())
-                            y_max = float(y_sub_raw.max())
-                            span = y_max - y_min
-                            if span > 0:
-                                y_sub_norm = (y_sub_raw - y_min) / span
+            while True:
+                try:
+                    current_xlim = ax.get_xlim()
+                    print(f"Current X range: {current_xlim[0]:.6g} to {current_xlim[1]:.6g}")
+                    rng = input("Enter new X range (min max) or 'full' (q=back): ").strip()
+                    if not rng or rng.lower() == 'q':
+                        break
+                    push_state("xrange")
+                    if rng.lower() == 'full':
+                        new_min = min(xf.min() for xf in x_full_list if xf.size)
+                        new_max = max(xf.max() for xf in x_full_list if xf.size)
+                    else:
+                        new_min, new_max = map(float, rng.split())
+                    ax.set_xlim(new_min, new_max)
+                    for i in range(len(labels)):
+                        xf = x_full_list[i]; yf_raw = raw_y_full_list[i]
+                        mask = (xf>=new_min) & (xf<=new_max)
+                        x_sub = xf[mask]; y_sub_raw = yf_raw[mask]
+                        if x_sub.size == 0:
+                            ax.lines[i].set_data([], [])
+                            y_data_list[i] = np.array([]); orig_y[i] = np.array([]); continue
+                        # Auto-normalize for --stack mode, or explicit --norm flag
+                        should_normalize = args.stack or getattr(args, 'norm', False)
+                        if should_normalize:
+                            if y_sub_raw.size:
+                                y_min = float(y_sub_raw.min())
+                                y_max = float(y_sub_raw.max())
+                                span = y_max - y_min
+                                if span > 0:
+                                    y_sub_norm = (y_sub_raw - y_min) / span
+                                else:
+                                    y_sub_norm = np.zeros_like(y_sub_raw)
                             else:
-                                y_sub_norm = np.zeros_like(y_sub_raw)
+                                y_sub_norm = y_sub_raw
                         else:
                             y_sub_norm = y_sub_raw
-                    else:
-                        y_sub_norm = y_sub_raw
-                    offset_val = offsets_list[i]
-                    y_with_offset = y_sub_norm + offset_val
-                    ax.lines[i].set_data(x_sub, y_with_offset)
-                    x_data_list[i] = x_sub
-                    y_data_list[i] = y_with_offset
-                    orig_y[i] = y_sub_norm
-                ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
-                update_labels(ax, y_data_list, label_text_objects, args.stack)
-                # Extend CIF ticks after x-range change
-                try:
-                    if hasattr(ax, '_cif_extend_func'):
-                        ax._cif_extend_func(ax.get_xlim()[1])
-                except Exception:
-                    pass
-                try:
-                    if hasattr(ax, '_cif_draw_func'):
-                        ax._cif_draw_func()
-                except Exception:
-                    pass
-                fig.canvas.draw()
-            except Exception as e:
-                print(f"Error setting X-axis range: {e}")
+                        offset_val = offsets_list[i]
+                        y_with_offset = y_sub_norm + offset_val
+                        ax.lines[i].set_data(x_sub, y_with_offset)
+                        x_data_list[i] = x_sub
+                        y_data_list[i] = y_with_offset
+                        orig_y[i] = y_sub_norm
+                    ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
+                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    # Extend CIF ticks after x-range change
+                    try:
+                        if hasattr(ax, '_cif_extend_func'):
+                            ax._cif_extend_func(ax.get_xlim()[1])
+                    except Exception:
+                        pass
+                    try:
+                        if hasattr(ax, '_cif_draw_func'):
+                            ax._cif_draw_func()
+                    except Exception:
+                        pass
+                    fig.canvas.draw()
+                except Exception as e:
+                    print(f"Error setting X-axis range: {e}")
         elif key == 'y':  # <-- Y-RANGE HANDLER (now only reachable if not args.stack)
-            try:
-                rng = input("Enter new Y range (min max), 'auto', or 'full' (q=cancel): ").strip().lower()
-                if not rng or rng == 'q':
-                    print("Canceled.")
-                    continue
-                push_state("yrange")
-                if rng == 'auto':
-                    ax.relim()
-                    ax.autoscale_view(scalex=False, scaley=True)
-                else:
-                    if rng == 'full':
-                        all_min = None
-                        all_max = None
-                        for arr in y_data_list:
-                            if arr.size:
-                                mn = float(arr.min())
-                                mx = float(arr.max())
-                                all_min = mn if all_min is None else min(all_min, mn)
-                                all_max = mx if all_max is None else max(all_max, mx)
-                        if all_min is None or all_max is None:
-                            print("No data to compute full Y range.")
-                            continue
-                        y_min, y_max = all_min, all_max
+            while True:
+                try:
+                    current_ylim = ax.get_ylim()
+                    print(f"Current Y range: {current_ylim[0]:.6g} to {current_ylim[1]:.6g}")
+                    rng = input("Enter new Y range (min max), 'auto', or 'full' (q=back): ").strip().lower()
+                    if not rng or rng == 'q':
+                        break
+                    push_state("yrange")
+                    if rng == 'auto':
+                        ax.relim()
+                        ax.autoscale_view(scalex=False, scaley=True)
                     else:
-                        parts = rng.split()
-                        if len(parts) != 2:
-                            print("Need exactly two numbers for Y range.")
-                            continue
-                        y_min, y_max = map(float, parts)
-                        if y_min == y_max:
-                            print("Warning: min == max; expanding slightly.")
-                            eps = abs(y_min)*1e-6 if y_min != 0 else 1e-6
-                            y_min -= eps
-                            y_max += eps
-                    ax.set_ylim(y_min, y_max)
-                update_labels(ax, y_data_list, label_text_objects, args.stack)
-                fig.canvas.draw_idle()
-                print(f"Y range set to {ax.get_ylim()}")
-            except Exception as e:
-                print(f"Error setting Y-axis range: {e}")
+                        if rng == 'full':
+                            all_min = None
+                            all_max = None
+                            for arr in y_data_list:
+                                if arr.size:
+                                    mn = float(arr.min())
+                                    mx = float(arr.max())
+                                    all_min = mn if all_min is None else min(all_min, mn)
+                                    all_max = mx if all_max is None else max(all_max, mx)
+                            if all_min is None or all_max is None:
+                                print("No data to compute full Y range.")
+                                continue
+                            y_min, y_max = all_min, all_max
+                        else:
+                            parts = rng.split()
+                            if len(parts) != 2:
+                                print("Need exactly two numbers for Y range.")
+                                continue
+                            y_min, y_max = map(float, parts)
+                            if y_min == y_max:
+                                print("Warning: min == max; expanding slightly.")
+                                eps = abs(y_min)*1e-6 if y_min != 0 else 1e-6
+                                y_min -= eps
+                                y_max += eps
+                        ax.set_ylim(y_min, y_max)
+                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    fig.canvas.draw_idle()
+                    print(f"Y range set to {ax.get_ylim()}")
+                except Exception as e:
+                    print(f"Error setting Y-axis range: {e}")
         elif key == 'd':  # <-- DELTA / OFFSET HANDLER (now only reachable if not args.stack)
             print("\nOffset adjustment menu:")
             print("  1-{}: adjust individual curve offset".format(len(labels)))
@@ -1765,96 +1781,100 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print("Rotation is disabled in --stack mode.")
                 continue
             
-            print("\nRotate plot:")
-            print("  c: clockwise (90°)")
-            print("  a: anti-clockwise (-90°)")
-            print("  q: cancel")
-            
-            rot_cmd = input("Rotate> ").strip().lower()
-            
-            if rot_cmd == 'c' or rot_cmd == 'a':
-                try:
-                    push_state("rotate")
-                    
-                    # Determine rotation direction
-                    angle_delta = 90 if rot_cmd == 'c' else -90
-                    ax._rotation_angle = (ax._rotation_angle + angle_delta) % 360
-                    
-                    # Swap X and Y data for all curves - MUST COPY to avoid mutation
-                    for i in range(len(labels)):
-                        xdata = x_data_list[i].copy()  # COPY to avoid mutation
-                        ydata = y_data_list[i].copy()  # COPY to avoid mutation
+            while True:
+                print("\nRotate plot:")
+                print("  c: clockwise (90°)")
+                print("  a: anti-clockwise (-90°)")
+                print("  q: back")
+                
+                rot_cmd = input("Rotate> ").strip().lower()
+                
+                if rot_cmd == 'q' or rot_cmd == '':
+                    break
+                
+                if rot_cmd == 'c' or rot_cmd == 'a':
+                    try:
+                        push_state("rotate")
                         
-                        if rot_cmd == 'c':
-                            # Clockwise: X->Y, -Y->X
-                            new_x = -ydata
-                            new_y = xdata
-                        else:
-                            # Counter-clockwise: Y->X, -X->Y  
-                            new_x = ydata
-                            new_y = -xdata
+                        # Determine rotation direction
+                        angle_delta = 90 if rot_cmd == 'c' else -90
+                        ax._rotation_angle = (ax._rotation_angle + angle_delta) % 360
                         
-                        x_data_list[i] = new_x
-                        y_data_list[i] = new_y
-                        ax.lines[i].set_data(new_x, new_y)
-                        
-                        # Also update orig_y (normalized data without offset)
-                        if i < len(orig_y):
-                            orig_y_data = orig_y[i].copy()  # COPY original
+                        # Swap X and Y data for all curves - MUST COPY to avoid mutation
+                        for i in range(len(labels)):
+                            xdata = x_data_list[i].copy()  # COPY to avoid mutation
+                            ydata = y_data_list[i].copy()  # COPY to avoid mutation
+                            
                             if rot_cmd == 'c':
-                                # For clockwise, orig_y should come from old x_data 
-                                # But we need the normalized version, so recalculate from offset
-                                offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
-                                orig_y[i] = xdata - offset_val
+                                # Clockwise: X->Y, -Y->X
+                                new_x = -ydata
+                                new_y = xdata
                             else:
-                                # For counter-clockwise
-                                offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
-                                orig_y[i] = -(xdata - offset_val)
-                    
-                    # Also rotate full data - MUST COPY
-                    for i in range(len(x_full_list)):
-                        xf = x_full_list[i].copy()  # COPY to avoid mutation
-                        yf = raw_y_full_list[i].copy()  # COPY to avoid mutation
+                                # Counter-clockwise: Y->X, -X->Y  
+                                new_x = ydata
+                                new_y = -xdata
+                            
+                            x_data_list[i] = new_x
+                            y_data_list[i] = new_y
+                            ax.lines[i].set_data(new_x, new_y)
+                            
+                            # Also update orig_y (normalized data without offset)
+                            if i < len(orig_y):
+                                orig_y_data = orig_y[i].copy()  # COPY original
+                                if rot_cmd == 'c':
+                                    # For clockwise, orig_y should come from old x_data 
+                                    # But we need the normalized version, so recalculate from offset
+                                    offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
+                                    orig_y[i] = xdata - offset_val
+                                else:
+                                    # For counter-clockwise
+                                    offset_val = offsets_list[i] if i < len(offsets_list) else 0.0
+                                    orig_y[i] = -(xdata - offset_val)
                         
+                        # Also rotate full data - MUST COPY
+                        for i in range(len(x_full_list)):
+                            xf = x_full_list[i].copy()  # COPY to avoid mutation
+                            yf = raw_y_full_list[i].copy()  # COPY to avoid mutation
+                            
+                            if rot_cmd == 'c':
+                                x_full_list[i] = -yf
+                                raw_y_full_list[i] = xf
+                            else:
+                                x_full_list[i] = yf
+                                raw_y_full_list[i] = -xf
+                        
+                        # Swap axis limits
+                        xlim = ax.get_xlim()
+                        ylim = ax.get_ylim()
                         if rot_cmd == 'c':
-                            x_full_list[i] = -yf
-                            raw_y_full_list[i] = xf
+                            ax.set_xlim(-ylim[1], -ylim[0])
+                            ax.set_ylim(xlim)
                         else:
-                            x_full_list[i] = yf
-                            raw_y_full_list[i] = -xf
-                    
-                    # Swap axis limits
-                    xlim = ax.get_xlim()
-                    ylim = ax.get_ylim()
-                    if rot_cmd == 'c':
-                        ax.set_xlim(-ylim[1], -ylim[0])
-                        ax.set_ylim(xlim)
-                    else:
-                        ax.set_xlim(ylim)
-                        ax.set_ylim(-xlim[1], -xlim[0])
-                    
-                    # Swap axis labels
-                    xlabel = ax.get_xlabel()
-                    ylabel = ax.get_ylabel()
-                    ax.set_xlabel(ylabel)
-                    ax.set_ylabel(xlabel)
-                    
-                    # Relimit and redraw
-                    ax.relim()
-                    ax.autoscale_view()
-                    update_labels(ax, y_data_list, label_text_objects, args.stack)
-                    fig.canvas.draw()
-                    
-                    direction = "clockwise" if rot_cmd == 'c' else "anti-clockwise"
-                    print(f"Plot rotated 90° {direction}. Current rotation: {ax._rotation_angle}°")
-                    print("WARNING: Rotation is experimental. Offsets may need adjustment.")
-                    
-                except Exception as e:
-                    print(f"Error rotating plot: {e}")
-                    import traceback
-                    traceback.print_exc()
-            elif rot_cmd != 'q':
-                print("Invalid choice")
+                            ax.set_xlim(ylim)
+                            ax.set_ylim(-xlim[1], -xlim[0])
+                        
+                        # Swap axis labels
+                        xlabel = ax.get_xlabel()
+                        ylabel = ax.get_ylabel()
+                        ax.set_xlabel(ylabel)
+                        ax.set_ylabel(xlabel)
+                        
+                        # Relimit and redraw
+                        ax.relim()
+                        ax.autoscale_view()
+                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        fig.canvas.draw()
+                        
+                        direction = "clockwise" if rot_cmd == 'c' else "anti-clockwise"
+                        print(f"Plot rotated 90° {direction}. Current rotation: {ax._rotation_angle}°")
+                        print("WARNING: Rotation is experimental. Offsets may need adjustment.")
+                        
+                    except Exception as e:
+                        print(f"Error rotating plot: {e}")
+                        import traceback
+                        traceback.print_exc()
+                else:
+                    print("Invalid choice")
         elif key == 'l':
             try:
                 while True:
@@ -2438,17 +2458,51 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print(f"Error importing style: {e}")
         elif key == 'e':
             try:
-                filename = input("Enter filename (default SVG if no extension, q=cancel): ").strip()
+                # List existing figure files
+                folder = os.getcwd()
+                fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
+                files = []
+                try:
+                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
+                except Exception:
+                    files = []
+                if files:
+                    print("Existing figure files:")
+                    for i, f in enumerate(files, 1):
+                        print(f"  {i}: {f}")
+                
+                filename = input("Enter filename (default SVG if no extension) or number to overwrite (q=cancel): ").strip()
                 if not filename or filename.lower() == 'q':
                     print("Canceled.")
+                    continue
+                
+                # Check if user selected a number
+                already_confirmed = False
+                if filename.isdigit() and files:
+                    idx = int(filename)
+                    if 1 <= idx <= len(files):
+                        name = files[idx-1]
+                        yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
+                        if yn != 'y':
+                            print("Canceled.")
+                            continue
+                        filename = name
+                        already_confirmed = True
+                    else:
+                        print("Invalid number.")
+                        continue
                 else:
                     if not os.path.splitext(filename)[1]:
                         filename += ".svg"
-                    # Confirm overwrite if file exists
+                
+                # Confirm overwrite if file exists (and not already confirmed by number selection)
+                if already_confirmed:
+                    export_target = filename
+                else:
                     export_target = _confirm_overwrite(filename)
-                    if not export_target:
-                        print("Export canceled.")
-                    else:
+                if not export_target:
+                    print("Export canceled.")
+                else:
                         # Temporarily remove numbering for export
                         for i, txt in enumerate(label_text_objects):
                             txt.set_text(labels[i])
