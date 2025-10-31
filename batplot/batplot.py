@@ -107,6 +107,22 @@ def batplot_main() -> int:
     # Parse CLI arguments
     args = _bp_parse_args()
 
+    # Check if no input provided (no files and no special flags)
+    has_special_flag = any([
+        getattr(args, 'gc', False),
+        getattr(args, 'cv', False),
+        getattr(args, 'dqdv', False),
+        getattr(args, 'cpc', False),
+        getattr(args, 'operando', False),
+        getattr(args, 'all', None) is not None,
+        getattr(args, 'convert', None) is not None,
+    ])
+    
+    if not args.files and not has_special_flag:
+        print("No input provided, nothing to do.")
+        print("Use 'batplot -h' to see help.")
+        return 0
+
     # --- EC Batch Mode: process all EC files in a directory ---
     # Check if any EC mode is active and user specified 'all' or a directory
     ec_mode_active = any([
@@ -1565,6 +1581,18 @@ def batplot_main() -> int:
             fig._curve_names_visible = curve_names_visible
         except Exception:
             pass
+        # Restore stack label position preference
+        try:
+            stack_label_at_bottom = bool(sess.get('stack_label_at_bottom', False))
+            fig._stack_label_at_bottom = stack_label_at_bottom
+        except Exception:
+            pass
+        # Restore grid state
+        try:
+            grid_state = bool(sess.get('grid', False))
+            ax.grid(grid_state, color='0.85', linestyle='-', linewidth=0.5, alpha=0.7)
+        except Exception:
+            pass
         # CIF tick series (optional)
         cif_tick_series = sess.get('cif_tick_series') or []
         cif_hkl_map = {k: [tuple(v) for v in val] for k,val in sess.get('cif_hkl_map', {}).items()}
@@ -1602,7 +1630,8 @@ def batplot_main() -> int:
                 ax.tick_params(axis='y', which='minor', left=False, right=False, labelleft=False, labelright=False)
         update_tick_visibility_local()
         # Ensure label positions correct
-        update_labels(ax, y_data_list, label_text_objects, saved_stack)
+        stack_label_bottom = bool(sess.get('stack_label_at_bottom', False))
+        update_labels(ax, y_data_list, label_text_objects, saved_stack, stack_label_bottom)
         if cif_tick_series:
             # Provide draw/extend helpers compatible with interactive menu using original placement logic
             def _session_q_to_2theta(peaksQ, wl):
@@ -1856,7 +1885,7 @@ def batplot_main() -> int:
             if args.xaxis:
                 axis_mode = args.xaxis
             else:
-                raise ValueError("Cannot determine X-axis type for .txt files. Please specify --xaxis (Q, 2theta, r, k, energy, rft, or 'user defined').")
+                raise ValueError("Unknown file type. Use: batplot file.txt --xaxis [Q|2theta|r|k|energy|rft] or batplot -h for help.")
         elif any_lambda or any_cif:
             if args.xaxis and args.xaxis.lower() in ("2theta","two_theta","tth"):
                 axis_mode = "2theta"
@@ -1867,7 +1896,7 @@ def batplot_main() -> int:
         elif args.xaxis:
             axis_mode = args.xaxis
         else:
-            raise ValueError("Cannot determine X-axis type (need .qye / .gr / .nor / .chik / .chir / .cif / wavelength / --xaxis). For .txt or unknown file types, use --xaxis Q, 2theta, r, k, energy, rft, or 'user defined'.")
+            raise ValueError("Unknown file type. Use: batplot file.csv --xaxis [Q|2theta|r|k|energy|rft] or batplot -h for help.")
 
     use_Q   = axis_mode == "Q"
     use_2th = axis_mode == "2theta"
@@ -1989,8 +2018,30 @@ def batplot_main() -> int:
             if data.ndim == 1: data = data.reshape(1, -1)
             if data.shape[1] < 2:
                 print(f"Invalid data format in {fname}"); continue
-            x, y = data[:, 0], data[:, 1]
-            e = data[:, 2] if data.shape[1] >= 3 else None
+            # Handle --readcol flag to select specific columns
+            # Check for extension-specific readcol first, then fall back to general --readcol
+            readcol_spec = None
+            if hasattr(args, 'readcol_by_ext') and file_ext in args.readcol_by_ext:
+                readcol_spec = args.readcol_by_ext[file_ext]
+            elif args.readcol:
+                readcol_spec = args.readcol
+            
+            if readcol_spec:
+                x_col, y_col = readcol_spec
+                # Convert from 1-indexed to 0-indexed
+                x_col_idx = x_col - 1
+                y_col_idx = y_col - 1
+                if x_col_idx < 0 or x_col_idx >= data.shape[1]:
+                    print(f"Error: X column {x_col} out of range in {fname} (has {data.shape[1]} columns)")
+                    continue
+                if y_col_idx < 0 or y_col_idx >= data.shape[1]:
+                    print(f"Error: Y column {y_col} out of range in {fname} (has {data.shape[1]} columns)")
+                    continue
+                x, y = data[:, x_col_idx], data[:, y_col_idx]
+                e = None  # Error bars not supported with custom column selection
+            else:
+                x, y = data[:, 0], data[:, 1]
+                e = data[:, 2] if data.shape[1] >= 3 else None
             # For .csv, .dat, .xy, .xye, .qye, .nor, .chik, .chir, this robustly skips headers
         elif args.fullprof and file_ext == ".dat":
             try:
@@ -2016,8 +2067,30 @@ def batplot_main() -> int:
             if data.shape[1] < 2:
                 print(f"Invalid data format in {fname}: expected at least 2 columns, got {data.shape[1]}")
                 continue
-            x, y = data[:, 0], data[:, 1]
-            e = data[:, 2] if data.shape[1] >= 3 else None
+            # Handle --readcol flag to select specific columns
+            # Check for extension-specific readcol first, then fall back to general --readcol
+            readcol_spec = None
+            if hasattr(args, 'readcol_by_ext') and file_ext in args.readcol_by_ext:
+                readcol_spec = args.readcol_by_ext[file_ext]
+            elif args.readcol:
+                readcol_spec = args.readcol
+            
+            if readcol_spec:
+                x_col, y_col = readcol_spec
+                # Convert from 1-indexed to 0-indexed
+                x_col_idx = x_col - 1
+                y_col_idx = y_col - 1
+                if x_col_idx < 0 or x_col_idx >= data.shape[1]:
+                    print(f"Error: X column {x_col} out of range in {fname} (has {data.shape[1]} columns)")
+                    continue
+                if y_col_idx < 0 or y_col_idx >= data.shape[1]:
+                    print(f"Error: Y column {y_col} out of range in {fname} (has {data.shape[1]} columns)")
+                    continue
+                x, y = data[:, x_col_idx], data[:, y_col_idx]
+                e = None  # Error bars not supported with custom column selection
+            else:
+                x, y = data[:, 0], data[:, 1]
+                e = data[:, 2] if data.shape[1] >= 3 else None
             # Warn once per unknown extension type
             if not hasattr(args, '_warned_extensions'):
                 args._warned_extensions = set()
@@ -2057,6 +2130,24 @@ def batplot_main() -> int:
                 e_plot = e_plot[mask]
         else:
             x_plot = x_full
+
+        # ---- Apply EXAFS k-weighting transformation if requested ----
+        if getattr(args, 'k3chik', False):
+            # Multiply y by x³ for EXAFS k³χ(k) plots
+            y_plot = y_plot * (x_plot ** 3)
+            y_full_raw = y_full_raw * (x_full ** 3)
+            raw_y_full_list[-1] = y_full_raw
+        elif getattr(args, 'k2chik', False):
+            # Multiply y by x² for EXAFS k²χ(k) plots
+            y_plot = y_plot * (x_plot ** 2)
+            y_full_raw = y_full_raw * (x_full ** 2)
+            raw_y_full_list[-1] = y_full_raw
+        elif getattr(args, 'kchik', False):
+            # Multiply y by x for EXAFS kχ(k) plots
+            y_plot = y_plot * x_plot
+            y_full_raw = y_full_raw * x_full
+            raw_y_full_list[-1] = y_full_raw
+        # elif getattr(args, 'chik', False): no multiplication needed, just label change
 
         # ---- Normalize (display subset) ----
         # Auto-normalize for --stack mode, or explicit --norm flag
@@ -2155,10 +2246,12 @@ def batplot_main() -> int:
             label_text_objects.append(txt)
 
     # Ensure consistent initial placement (especially for stacked mode)
-    update_labels(ax, y_data_list, label_text_objects, args.stack)
+    update_labels(ax, y_data_list, label_text_objects, args.stack, False)
     
     # Initialize curve names visibility (default to visible)
     fig._curve_names_visible = True
+    # Initialize stack label position (default to top/max)
+    fig._stack_label_at_bottom = False
 
     # ---------------- CIF tick overlay (after labels placed) ----------------
     def _ensure_wavelength_for_2theta():
@@ -2430,26 +2523,43 @@ def batplot_main() -> int:
         ax._cif_extend_func = extend_cif_tick_series
         ax._cif_draw_func = draw_cif_ticks
 
-    if use_E: x_label = "Energy (eV)"
-    elif use_r: x_label = r"r (Å)"
-    elif use_k: x_label = r"k ($\mathrm{\AA}^{-1}$)"
-    elif use_rft: x_label = "Radial distance (Å)"
-    elif use_Q: x_label = r"Q ($\mathrm{\AA}^{-1}$)"
-    elif use_2th: x_label = r"$2\theta$ (deg)"
-    elif use_time: x_label = "Time (h)"
-    elif args.xaxis:
-        x_label = str(args.xaxis)
+    # Handle EXAFS k-weighted χ(k) mode labels
+    if getattr(args, 'k3chik', False):
+        x_label = r"k ($\mathrm{\AA}^{-1}$)"
+        y_label = r"k$^3$χ(k) ($\mathrm{\AA}^{-3}$)"
+    elif getattr(args, 'k2chik', False):
+        x_label = r"k ($\mathrm{\AA}^{-1}$)"
+        y_label = r"k$^2$χ(k) ($\mathrm{\AA}^{-2}$)"
+    elif getattr(args, 'kchik', False):
+        x_label = r"k ($\mathrm{\AA}^{-1}$)"
+        y_label = r"kχ(k) ($\mathrm{\AA}^{-1}$)"
+    elif getattr(args, 'chik', False):
+        x_label = r"k ($\mathrm{\AA}^{-1}$)"
+        y_label = r"χ(k)"
     else:
-        x_label = "X"
+        if use_E: x_label = "Energy (eV)"
+        elif use_r: x_label = r"r (Å)"
+        elif use_k: x_label = r"k ($\mathrm{\AA}^{-1}$)"
+        elif use_rft: x_label = "Radial distance (Å)"
+        elif use_Q: x_label = r"Q ($\mathrm{\AA}^{-1}$)"
+        elif use_2th: x_label = r"$2\theta$ (deg)"
+        elif use_time: x_label = "Time (h)"
+        elif args.xaxis:
+            x_label = str(args.xaxis)
+        else:
+            x_label = "X"
+        
+        # Y-axis label: normalized if --stack or --norm, or voltage for time mode
+        should_normalize = args.stack or getattr(args, 'norm', False)
+        if use_time:
+            y_label = "Voltage (V)"
+        elif should_normalize:
+            y_label = "Normalized intensity (a.u.)"
+        else:
+            y_label = "Intensity"
+    
     ax.set_xlabel(x_label, fontsize=16)
-    # Y-axis label: normalized if --stack or --norm, or voltage for time mode
-    should_normalize = args.stack or getattr(args, 'norm', False)
-    if use_time:
-        ax.set_ylabel("Voltage (V)", fontsize=16)
-    elif should_normalize:
-        ax.set_ylabel("Normalized intensity (a.u.)", fontsize=16)
-    else:
-        ax.set_ylabel("Intensity", fontsize=16)
+    ax.set_ylabel(y_label, fontsize=16)
 
     # Store originals for axis-title toggle restoration (t menu bn/ln)
     try:
@@ -2467,7 +2577,7 @@ def batplot_main() -> int:
     # use the existing callbacks / update logic.)
     try:
         fig.canvas.draw()  # ensure limits are finalized
-        update_labels(ax, y_data_list, label_text_objects, args.stack)
+        update_labels(ax, y_data_list, label_text_objects, args.stack, False)
     except Exception:
         pass
 

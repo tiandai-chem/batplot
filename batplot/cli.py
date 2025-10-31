@@ -27,6 +27,10 @@ def main(argv: Optional[list] = None) -> int:
 		# Import the main batplot function (now refactored to be safe)
 		from .batplot import batplot_main
 		return batplot_main()
+	except ValueError as e:
+		# Print clean error message without traceback
+		print(f"Error: {e}", file=sys.stderr)
+		return 1
 	finally:
 		if argv is not None:
 			sys.argv = old_argv

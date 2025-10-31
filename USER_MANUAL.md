@@ -104,6 +104,38 @@ batplot --all --wl 1.5406
 # Batch mode: convert 2theta to Q with wavelength 1.5406 Å
 ```
 
+### EXAFS k-Weighting
+
+For EXAFS (Extended X-ray Absorption Fine Structure) data in k-space, batplot provides four k-weighting options to emphasize different features of the data:
+
+| Flag | Transformation | Y-axis Label | Use Case |
+|------|---------------|--------------|----------|
+| `--chik` | χ(k) | χ(k) | Standard EXAFS oscillations |
+| `--kchik` | k × χ(k) | kχ(k) (Å⁻¹) | Emphasize mid-k features |
+| `--k2chik` | k² × χ(k) | k²χ(k) (Å⁻²) | Most common weighting, balances signal |
+| `--k3chik` | k³ × χ(k) | k³χ(k) (Å⁻³) | Emphasize high-k features, heavy backscatterers |
+
+**Example Usage:**
+
+```bash
+batplot data.chik --chik
+# Plot standard χ(k) with proper axis labels
+
+batplot data.chik --kchik --interactive
+# k-weighted plot with interactive menu
+
+batplot data.chik --k2chik --out k2chik.svg
+# Most common k²χ(k) weighting, save as SVG
+
+batplot data.chik --k3chik --xrange 2 12 --interactive
+# k³-weighted plot with custom k-range
+
+batplot file1.chik file2.chik --k2chik --stack --interactive
+# Compare multiple samples with k² weighting
+```
+
+**Note:** All k-weighting flags automatically set the x-axis to k (Å⁻¹) and apply the appropriate mathematical transformation to the y-data.
+
 ---
 
 ## 3. Electrochemistry Mode

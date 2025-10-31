@@ -1,9 +1,20 @@
-"""Interactive menu for operando contour + electrochem (EC) side panel.
+"""Interactive menu for operando contour plots with optional electrochemical (EC) side panel.
+
+This module provides an interactive command-line interface for manipulating operando
+contour plots that correlate in-situ characterization data (XRD/PDF/XAS) with 
+electrochemical measurements. Users can adjust:
+- Visual styling (colormap, line widths, fonts)
+- Axis ranges and labels
+- Plot geometry (widths, gaps, heights)
+- EC panel settings (time vs ions mode, curve visibility)
+- Export and session management
+
+The menu supports both dual-panel mode (with .mpt file) and operando-only mode.
 """
 
 from __future__ import annotations
 
-from typing import Tuple, Dict
+from typing import Tuple, Dict, Optional, Any
 import json
 import os
 
@@ -18,13 +29,107 @@ from .ui import position_bottom_xlabel as _ui_position_bottom_xlabel
 from .ui import position_left_ylabel as _ui_position_left_ylabel
 
 
+def _colorize_menu(text):
+    """Colorize menu items: command in cyan, colon in white, description in default."""
+    if ':' not in text:
+        return text
+    parts = text.split(':', 1)
+    cmd = parts[0].strip()
+    desc = parts[1].strip() if len(parts) > 1 else ''
+    return f"\033[96m{cmd}\033[0m: {desc}"  # Cyan for command, default for description
+
+
+def _colorize_prompt(text):
+    """Colorize commands within input prompts. Handles formats like (s=size, f=family, q=return) or (y/n)."""
+    import re
+    pattern = r'\(([a-z]+=[^,)]+(?:,\s*[a-z]+=[^,)]+)*|[a-z]+(?:/[a-z]+)+)\)'
+    
+    def colorize_match(match):
+        content = match.group(1)
+        if '/' in content:
+            parts = content.split('/')
+            colored_parts = [f"\033[96m{p.strip()}\033[0m" for p in parts]
+            return f"({'/'.join(colored_parts)})"
+        else:
+            parts = content.split(',')
+            colored_parts = []
+            for part in parts:
+                part = part.strip()
+                if '=' in part:
+                    cmd, desc = part.split('=', 1)
+                    colored_parts.append(f"\033[96m{cmd.strip()}\033[0m={desc.strip()}")
+                else:
+                    colored_parts.append(part)
+            return f"({', '.join(colored_parts)})"
+    
+    return re.sub(pattern, colorize_match, text)
+
+
+def _colorize_inline_commands(text):
+    """Colorize inline command examples in help text. Colors quoted examples and specific known commands."""
+    import re
+    # Color quoted command examples (like 's2 w5 a4', 'w2 w5')
+    text = re.sub(r"'([a-z0-9\s_-]+)'", lambda m: f"'\033[96m{m.group(1)}\033[0m'", text)
+    # Color specific known commands: q, i, l, list, help, all
+    text = re.sub(r'\b(q|i|l|list|help|all)\b(?=\s*[=,]|\s*$)', lambda m: f"\033[96m{m.group(1)}\033[0m", text)
+    return text
+
+
+# ============================================================================
+# Constants
+# ============================================================================
+
+# Default geometry adjustments (in inches)
+DEFAULT_EC_GAP_MULTIPLIER = 0.35  # Multiplier to reduce gap between operando and EC panels
+MIN_EC_GAP_INCHES = 0.05  # Minimum allowed gap between panels
+MIN_EC_WIDTH_INCHES = 0.8  # Minimum width for EC panel
+
+# Width transfer from EC to operando panel
+WIDTH_TRANSFER_FROM_EC_FRACTION = 0.18  # Fraction of EC width to transfer to operando
+MAX_WIDTH_TRANSFER_FRACTION = 0.12  # Maximum transfer as fraction of combined width
+
+# Default voltage axis margin (fraction of range)
+DEFAULT_VOLTAGE_MARGIN = 0.02  # 2% margin on voltage axis
+
+# History management
+MAX_UNDO_HISTORY_SIZE = 40  # Maximum number of undo states to keep
+
+# Intensity mapping
+INTENSITY_CALCULATION_BUFFER = 1  # Buffer for intensity calculation indices
+
+
+# ============================================================================
+# Geometry and State Management Helper Functions
+# ============================================================================
+
 def _get_fig_size(fig) -> Tuple[float, float]:
-    w, h = fig.get_size_inches()
-    return float(w), float(h)
+    """Get the figure size in inches.
+    
+    Args:
+        fig: Matplotlib Figure object
+        
+    Returns:
+        Tuple of (width, height) in inches
+    """
+    width, height = fig.get_size_inches()
+    return float(width), float(height)
 
 
 def _get_geometry_snapshot(ax, ec_ax) -> Dict:
-    """Collects a snapshot of geometry settings (axes labels and limits)."""
+    """Collect a snapshot of current axes geometry settings.
+    
+    Captures axis limits and labels for both operando and EC (if present) axes.
+    Used for undo/redo functionality and session persistence.
+    
+    Args:
+        ax: Main operando axes object
+        ec_ax: Optional EC (electrochemistry) axes object
+        
+    Returns:
+        Dictionary containing:
+            - 'operando': dict with xlim, ylim, xlabel, ylabel
+            - 'ec': dict with xlim, ylim, xlabel, ylabel (if ec_ax exists)
+    """
     snapshot = {
         'operando': {
             'xlim': list(ax.get_xlim()),
@@ -44,76 +149,121 @@ def _get_geometry_snapshot(ax, ec_ax) -> Dict:
 
 
 def _ensure_fixed_params(fig, ax, cbar_ax, ec_ax):
-    """Initialize and return fixed geometry parameters (in inches)."""
-    fig_w_in, fig_h_in = _get_fig_size(fig)
-    ax_x0, ax_y0, ax_wf, ax_hf = ax.get_position().bounds
-    cb_x0, cb_y0, cb_wf, cb_hf = cbar_ax.get_position().bounds
+    """Initialize and return fixed geometry parameters in inches.
     
-    cb_w_in = getattr(cbar_ax, '_fixed_cb_w_in', cb_wf * fig_w_in)
-    cb_gap_in = getattr(cbar_ax, '_fixed_cb_gap_in', (ax_x0 - (cb_x0 + cb_wf)) * fig_w_in)
-    ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_wf * fig_w_in)
-    ax_h_in = getattr(ax, '_fixed_ax_h_in', ax_hf * fig_h_in)
+    Retrieves or calculates the fixed dimensions for all plot elements (colorbar,
+    operando axes, EC axes) and the gaps between them. These values are stored
+    as attributes on the axes objects and used to maintain consistent sizing
+    when resizing the figure.
+    
+    Args:
+        fig: Matplotlib Figure object
+        ax: Main operando axes
+        cbar_ax: Colorbar axes
+        ec_ax: Optional EC axes (can be None)
+        
+    Returns:
+        Tuple of (colorbar_width, colorbar_gap, ec_gap, ec_width, 
+                  axes_width, axes_height) all in inches
+    """
+    fig_width_in, fig_height_in = _get_fig_size(fig)
+    
+    # Get current axes positions (fractions of figure size)
+    ax_x0, ax_y0, ax_width_frac, ax_height_frac = ax.get_position().bounds
+    cb_x0, cb_y0, cb_width_frac, cb_height_frac = cbar_ax.get_position().bounds
+    
+    # Retrieve or calculate fixed parameters in inches
+    colorbar_width_in = getattr(cbar_ax, '_fixed_cb_w_in', cb_width_frac * fig_width_in)
+    colorbar_gap_in = getattr(cbar_ax, '_fixed_cb_gap_in', 
+                              (ax_x0 - (cb_x0 + cb_width_frac)) * fig_width_in)
+    axes_width_in = getattr(ax, '_fixed_ax_w_in', ax_width_frac * fig_width_in)
+    axes_height_in = getattr(ax, '_fixed_ax_h_in', ax_height_frac * fig_height_in)
     
     if ec_ax is not None:
-        ec_x0, ec_y0, ec_wf, ec_hf = ec_ax.get_position().bounds
-        ec_gap_in = getattr(ec_ax, '_fixed_ec_gap_in', (ec_x0 - (ax_x0 + ax_wf)) * fig_w_in)
-        ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_wf * fig_w_in)
+        ec_x0, ec_y0, ec_width_frac, ec_height_frac = ec_ax.get_position().bounds
+        ec_gap_in = getattr(ec_ax, '_fixed_ec_gap_in', 
+                           (ec_x0 - (ax_x0 + ax_width_frac)) * fig_width_in)
+        ec_width_in = getattr(ec_ax, '_fixed_ec_w_in', ec_width_frac * fig_width_in)
     else:
         ec_gap_in = 0.0
-        ec_w_in = 0.0
+        ec_width_in = 0.0
     
-    return cb_w_in, cb_gap_in, ec_gap_in, ec_w_in, ax_w_in, ax_h_in
+    return (colorbar_width_in, colorbar_gap_in, ec_gap_in, ec_width_in, 
+            axes_width_in, axes_height_in)
 
 
 def _apply_group_layout_inches(fig, ax, cbar_ax, ec_ax,
-                               ax_w_in: float, ax_h_in: float,
-                               cb_w_in: float, cb_gap_in: float,
-                               ec_gap_in: float, ec_w_in: float):
-    """Position colorbar + operando axes + EC axes centered, using inches for widths/gaps."""
-    fig_w_in, fig_h_in = _get_fig_size(fig)
-    # Convert inches to figure fractions
-    ax_wf = max(0.0, ax_w_in / fig_w_in)
-    ax_hf = max(0.0, ax_h_in / fig_h_in)
-    cb_wf = max(0.0, cb_w_in / fig_w_in)
-    cb_gap_f = max(0.0, cb_gap_in / fig_w_in)
+                               ax_width_in: float, ax_height_in: float,
+                               colorbar_width_in: float, colorbar_gap_in: float,
+                               ec_gap_in: float, ec_width_in: float):
+    """Position all plot elements (colorbar, operando, EC) centered horizontally.
+    
+    This function calculates and applies the layout for all plot elements using
+    absolute inch measurements for widths and gaps, which allows consistent sizing
+    when the figure is resized. All elements are vertically centered and the group
+    is horizontally centered in the figure.
+    
+    Args:
+        fig: Matplotlib Figure object
+        ax: Main operando axes
+        cbar_ax: Colorbar axes
+        ec_ax: Optional EC axes (can be None)
+        ax_width_in: Operando axes width in inches
+        ax_height_in: Operando axes height in inches
+        colorbar_width_in: Colorbar width in inches
+        colorbar_gap_in: Gap between colorbar and operando axes in inches
+        ec_gap_in: Gap between operando and EC axes in inches
+        ec_width_in: EC axes width in inches (0 if ec_ax is None)
+    """
+    fig_width_in, fig_height_in = _get_fig_size(fig)
+    
+    # Convert inches to figure fractions (0-1 scale)
+    ax_width_frac = max(0.0, ax_width_in / fig_width_in)
+    ax_height_frac = max(0.0, ax_height_in / fig_height_in)
+    colorbar_width_frac = max(0.0, colorbar_width_in / fig_width_in)
+    colorbar_gap_frac = max(0.0, colorbar_gap_in / fig_width_in)
     
     if ec_ax is not None:
-        ec_gap_f = max(0.0, ec_gap_in / fig_w_in)
-        ec_wf = max(0.0, ec_w_in / fig_w_in)
-        # Total width and centered left edge
-        total_wf = cb_wf + cb_gap_f + ax_wf + ec_gap_f + ec_wf
+        ec_gap_frac = max(0.0, ec_gap_in / fig_width_in)
+        ec_width_frac = max(0.0, ec_width_in / fig_width_in)
+        # Calculate total width for all elements
+        total_width_frac = (colorbar_width_frac + colorbar_gap_frac + 
+                           ax_width_frac + ec_gap_frac + ec_width_frac)
     else:
-        ec_gap_f = 0.0
-        ec_wf = 0.0
-        # Total width without EC panel
-        total_wf = cb_wf + cb_gap_f + ax_wf
+        ec_gap_frac = 0.0
+        ec_width_frac = 0.0
+        # Calculate total width without EC panel
+        total_width_frac = colorbar_width_frac + colorbar_gap_frac + ax_width_frac
     
-    group_left = 0.5 - total_wf / 2.0
-    y0 = 0.5 - ax_hf / 2.0
+    # Center the group horizontally and vertically
+    group_left_edge = 0.5 - total_width_frac / 2.0
+    vertical_center = 0.5 - ax_height_frac / 2.0
 
-    # Positions: [x0, y0, w, h]
-    cb_x0 = group_left
-    ax_x0 = cb_x0 + cb_wf + cb_gap_f
-    cb_hf = ax_hf  # match heights
+    # Calculate positions for each element: [x0, y0, width, height]
+    colorbar_x0 = group_left_edge
+    operando_x0 = colorbar_x0 + colorbar_width_frac + colorbar_gap_frac
+    colorbar_height_frac = ax_height_frac  # Match colorbar height to axes
 
-    # Apply
-    ax.set_position([ax_x0, y0, ax_wf, ax_hf])
-    cbar_ax.set_position([cb_x0, y0, cb_wf, cb_hf])
+    # Apply positions
+    ax.set_position([operando_x0, vertical_center, ax_width_frac, ax_height_frac])
+    cbar_ax.set_position([colorbar_x0, vertical_center, colorbar_width_frac, 
+                          colorbar_height_frac])
     
     if ec_ax is not None:
-        ec_x0 = ax_x0 + ax_wf + ec_gap_f
-        ec_ax.set_position([ec_x0, y0, ec_wf, ax_hf])
+        ec_x0 = operando_x0 + ax_width_frac + ec_gap_frac
+        ec_ax.set_position([ec_x0, vertical_center, ec_width_frac, ax_height_frac])
         setattr(ec_ax, '_fixed_ec_gap_in', ec_gap_in)
-        setattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
+        setattr(ec_ax, '_fixed_ec_w_in', ec_width_in)
 
-    # Persist inches for future operations
-    setattr(cbar_ax, '_fixed_cb_w_in', cb_w_in)
-    setattr(cbar_ax, '_fixed_cb_gap_in', cb_gap_in)
+    # Store fixed inch measurements for future use
+    setattr(cbar_ax, '_fixed_cb_w_in', colorbar_width_in)
+    setattr(cbar_ax, '_fixed_cb_gap_in', colorbar_gap_in)
     setattr(ec_ax, '_fixed_ec_gap_in', ec_gap_in)
-    setattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
-    setattr(ax, '_fixed_ax_w_in', ax_w_in)
-    setattr(ax, '_fixed_ax_h_in', ax_h_in)
+    setattr(ec_ax, '_fixed_ec_w_in', ec_width_in)
+    setattr(ax, '_fixed_ax_w_in', ax_width_in)
+    setattr(ax, '_fixed_ax_h_in', ax_height_in)
 
+    # Redraw the canvas
     try:
         fig.canvas.draw()
     except Exception:
@@ -121,45 +271,108 @@ def _apply_group_layout_inches(fig, ax, cbar_ax, ec_ax,
 
 
 def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
+    """Launch the interactive menu for operando contour plots.
+    
+    This is the main entry point for the interactive mode. It sets up the initial
+    layout, initializes state management, and enters a command loop that allows
+    users to interactively modify the plot appearance, adjust axis ranges, toggle
+    elements, and export results.
+    
+    Supported modes:
+    - Dual-panel mode: Operando contour with EC side panel (when .mpt file present)
+    - Operando-only mode: Just the contour plot (no .mpt file)
+    
+    Available commands:
+    - Styling: colormap (oc), line widths (l), fonts (f), colors
+    - Geometry: width (ow/ew), height (h), gaps, canvas size (g)
+    - Axes: ranges (ox/oy/oz/et/ey), labels (or/er), toggle visibility (t)
+    - EC: curve selection (el), y-axis mode (ey: time ↔ ions)
+    - Utilities: crosshair (n), reverse (r), visibility toggle (v)
+    - Export: figure (e), style (p), session (s), undo (b), quit (q)
+    
+    Args:
+        fig: Matplotlib Figure containing the plot
+        ax: Main axes for operando contour
+        im: AxesImage object (the contour/heatmap)
+        cbar: Colorbar object
+        ec_ax: Optional axes for EC curves (None in operando-only mode)
+    """
 
     def _renormalize_to_visible():
-        """Set imshow clim to min/max of currently visible region (based on ax x/y limits)."""
+        """Adjust color scale to match the intensity range of the currently visible region.
+        
+        This function recalculates the colorbar limits based on only the portion of the
+        contour map that is currently visible (within the current x/y axis limits). This
+        is useful after zooming to enhance contrast in a specific region.
+        
+        The function:
+        1. Gets the visible x/y range from current axis limits
+        2. Maps these to pixel indices in the image array
+        3. Extracts the visible sub-array
+        4. Finds min/max of finite values (ignoring NaN/Inf)
+        5. Updates the color scale (clim) and colorbar
+        """
         try:
-            arr = np.asarray(im.get_array(), dtype=float)
-            if arr.ndim != 2 or arr.size == 0:
+            # Get the image data array
+            data_array = np.asarray(im.get_array(), dtype=float)
+            if data_array.ndim != 2 or data_array.size == 0:
                 return
-            H, W = arr.shape
+                
+            height, width = data_array.shape
+            
+            # Get image extent (data coordinates)
             x0, x1, y0, y1 = im.get_extent()
-            # Normalize coordinate orientation
-            xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
-            ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
-            # Current limits (sorted)
-            xl = ax.get_xlim(); yl = ax.get_ylim()
-            xlo, xhi = (min(xl), max(xl))
-            ylo, yhi = (min(yl), max(yl))
-            # Map to pixel indices
-            if xmax > xmin:
-                c0 = int(np.floor((xlo - xmin) / (xmax - xmin) * (W - 1)))
-                c1 = int(np.ceil((xhi - xmin) / (xmax - xmin) * (W - 1)))
+            
+            # Normalize coordinate orientation (handle reversed axes)
+            x_min, x_max = (x0, x1) if x0 <= x1 else (x1, x0)
+            y_min, y_max = (y0, y1) if y0 <= y1 else (y1, y0)
+            
+            # Get current visible limits
+            x_limits = ax.get_xlim()
+            y_limits = ax.get_ylim()
+            x_visible_min, x_visible_max = (min(x_limits), max(x_limits))
+            y_visible_min, y_visible_max = (min(y_limits), max(y_limits))
+            
+            # Map data coordinates to pixel indices
+            if x_max > x_min:
+                col_start = int(np.floor((x_visible_min - x_min) / (x_max - x_min) * (width - 1)))
+                col_end = int(np.ceil((x_visible_max - x_min) / (x_max - x_min) * (width - 1)))
             else:
-                c0, c1 = 0, W - 1
-            if ymax > ymin:
-                r0 = int(np.floor((ylo - ymin) / (ymax - ymin) * (H - 1)))
-                r1 = int(np.ceil((yhi - ymin) / (ymax - ymin) * (H - 1)))
+                col_start, col_end = 0, width - 1
+                
+            if y_max > y_min:
+                row_start = int(np.floor((y_visible_min - y_min) / (y_max - y_min) * (height - 1)))
+                row_end = int(np.ceil((y_visible_max - y_min) / (y_max - y_min) * (height - 1)))
             else:
-                r0, r1 = 0, H - 1
-            # Clip to bounds and ensure valid slice
-            c0 = max(0, min(W - 1, c0)); c1 = max(0, min(W - 1, c1))
-            r0 = max(0, min(H - 1, r0)); r1 = max(0, min(H - 1, r1))
-            if c1 < c0: c0, c1 = c1, c0
-            if r1 < r0: r0, r1 = r1, r0
-            view = arr[r0:r1+1, c0:c1+1]
-            # Drop NaN/Inf
-            finite = view[np.isfinite(view)]
-            if finite.size:
-                lo = float(np.min(finite)); hi = float(np.max(finite))
-                if hi > lo:
-                    im.set_clim(lo, hi)
+                row_start, row_end = 0, height - 1
+            
+            # Clip indices to array bounds and ensure valid slice
+            col_start = max(0, min(width - 1, col_start))
+            col_end = max(0, min(width - 1, col_end))
+            row_start = max(0, min(height - 1, row_start))
+            row_end = max(0, min(height - 1, row_end))
+            
+            # Swap if reversed
+            if col_end < col_start:
+                col_start, col_end = col_end, col_start
+            if row_end < row_start:
+                row_start, row_end = row_end, row_start
+            
+            # Extract visible region
+            visible_data = data_array[row_start:row_end + 1, col_start:col_end + 1]
+            
+            # Get finite values only (exclude NaN and Inf)
+            finite_values = visible_data[np.isfinite(visible_data)]
+            
+            if finite_values.size > 0:
+                intensity_min = float(np.min(finite_values))
+                intensity_max = float(np.max(finite_values))
+                
+                if intensity_max > intensity_min:
+                    # Update color limits
+                    im.set_clim(intensity_min, intensity_max)
+                    
+                    # Update colorbar if available
                     try:
                         if cbar is not None:
                             cbar.update_normal(im)
@@ -209,14 +422,19 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             w3 = max(len("(EC)"), *(len(s) for s in col3), 14)
             w4 = max(len("(Options)"), *(len(s) for s in col4), 16)
             rows = max(len(col1), len(col2), len(col3), len(col4))
-            print("\nInteractive menu:")
-            print(f"  {'(Styles)':<{w1}} {'(Operando)':<{w2}} {'(EC)':<{w3}} {'(Options)':<{w4}}")
+            print("\n\033[1mInteractive menu:\033[0m")  # Bold title
+            print(f"  \033[93m{'(Styles)':<{w1}}\033[0m \033[93m{'(Operando)':<{w2}}\033[0m \033[93m{'(EC)':<{w3}}\033[0m \033[93m{'(Options)':<{w4}}\033[0m")  # Yellow headers
             for i in range(rows):
-                p1 = col1[i] if i < len(col1) else ""
-                p2 = col2[i] if i < len(col2) else ""
-                p3 = col3[i] if i < len(col3) else ""
-                p4 = col4[i] if i < len(col4) else ""
-                print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}} {p4:<{w4}}")
+                p1 = _colorize_menu(col1[i]) if i < len(col1) else ""
+                p2 = _colorize_menu(col2[i]) if i < len(col2) else ""
+                p3 = _colorize_menu(col3[i]) if i < len(col3) else ""
+                p4 = _colorize_menu(col4[i]) if i < len(col4) else ""
+                # Add padding to account for ANSI escape codes
+                pad1 = w1 + (9 if i < len(col1) else 0)
+                pad2 = w2 + (9 if i < len(col2) else 0)
+                pad3 = w3 + (9 if i < len(col3) else 0)
+                pad4 = w4 + (9 if i < len(col4) else 0)
+                print(f"  {p1:<{pad1}} {p2:<{pad2}} {p3:<{pad3}} {p4:<{pad4}}")
         else:
             # Operando-only menu (no EC panel)
             col1 = [
@@ -249,13 +467,17 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             w2 = max(len("(Operando)"), *(len(s) for s in col2), 14)
             w3 = max(len("(Options)"), *(len(s) for s in col3), 16)
             rows = max(len(col1), len(col2), len(col3))
-            print("\nInteractive menu:")
-            print(f"  {'(Styles)':<{w1}} {'(Operando)':<{w2}} {'(Options)':<{w3}}")
+            print("\n\033[1mInteractive menu:\033[0m")  # Bold title
+            print(f"  \033[93m{'(Styles)':<{w1}}\033[0m \033[93m{'(Operando)':<{w2}}\033[0m \033[93m{'(Options)':<{w3}}\033[0m")  # Yellow headers
             for i in range(rows):
-                p1 = col1[i] if i < len(col1) else ""
-                p2 = col2[i] if i < len(col2) else ""
-                p3 = col3[i] if i < len(col3) else ""
-                print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
+                p1 = _colorize_menu(col1[i]) if i < len(col1) else ""
+                p2 = _colorize_menu(col2[i]) if i < len(col2) else ""
+                p3 = _colorize_menu(col3[i]) if i < len(col3) else ""
+                # Add padding to account for ANSI escape codes
+                pad1 = w1 + (9 if i < len(col1) else 0)
+                pad2 = w2 + (9 if i < len(col2) else 0)
+                pad3 = w3 + (9 if i < len(col3) else 0)
+                print(f"  {p1:<{pad1}} {p2:<{pad2}} {p3:<{pad3}}")
         print()
     def print_menu_old():
         col1 = [
@@ -961,16 +1183,23 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
     def _toggle_crosshair():
         if not cross['active']:
             try:
-                # Create unified crosshair lines spanning the entire figure
-                vline = fig.add_artist(plt.Line2D([0.5, 0.5], [0, 1], transform=fig.transFigure,
+                # Create unified crosshair lines spanning the entire figure (same style as XY mode)
+                import matplotlib.lines
+                import matplotlib.pyplot as mpl_plt
+                vline = fig.add_artist(matplotlib.lines.Line2D([0.5, 0.5], [0, 1], transform=fig.transFigure,
                                                    color='0.35', ls='--', lw=0.8, alpha=0.85, zorder=9999))
-                hline = fig.add_artist(plt.Line2D([0, 1], [0.5, 0.5], transform=fig.transFigure,
+                hline = fig.add_artist(matplotlib.lines.Line2D([0, 1], [0.5, 0.5], transform=fig.transFigure,
                                                    color='0.35', ls='--', lw=0.8, alpha=0.85, zorder=9999))
                 # Create text annotations for coordinates
                 coord_text = fig.text(0.02, 0.98, '', transform=fig.transFigure, 
-                                     verticalalignment='top', fontsize=9,
-                                     bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.8))
-            except Exception:
+                                     verticalalignment='top', 
+                                     fontsize=max(9, int(0.6 * mpl_plt.rcParams.get('font.size', 12))),
+                                     color='0.15',
+                                     bbox=dict(boxstyle='round,pad=0.25', fc='white', ec='0.7', alpha=0.8))
+            except Exception as e:
+                print(f"Failed to create crosshair: {e}")
+                import traceback
+                traceback.print_exc()
                 return
             def on_move(ev):
                 if ev.inaxes not in (ax, ec_ax):
@@ -984,32 +1213,67 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         vline.set_xdata([fig_x, fig_x])
                         hline.set_ydata([fig_y, fig_y])
                         
-                        # Get data coordinates for both axes
+                        # ALWAYS get data coordinates for BOTH axes regardless of where mouse is
                         texts = []
-                        if ev.inaxes == ax:
-                            texts.append(f"Operando: x={ev.xdata:.4f}, y={ev.ydata:.4f}")
-                        elif ev.inaxes == ec_ax:
-                            texts.append(f"EC: x={ev.xdata:.4f}, y={ev.ydata:.4f}")
                         
-                        # Also get coordinates from the other axis if mouse position overlaps
+                        # Get operando coordinates with intensity (z)
                         try:
-                            # Transform mouse position to data coords in both axes
-                            if ev.inaxes == ax and ec_ax is not None:
-                                # Try to get EC coordinates at the same figure position
+                            op_point = ax.transData.inverted().transform((ev.x, ev.y))
+                            xlim = ax.get_xlim()
+                            ylim = ax.get_ylim()
+                            
+                            # Get intensity value at this position from the image
+                            z_val = None
+                            try:
+                                # Get the array from the image
+                                arr = im.get_array()
+                                extent = im.get_extent()  # (left, right, bottom, top)
+                                
+                                # Map data coordinates to array indices
+                                if extent is not None and arr is not None:
+                                    x_data, y_data = op_point[0], op_point[1]
+                                    left, right, bottom, top = extent
+                                    
+                                    # Calculate normalized position (0-1)
+                                    x_norm = (x_data - left) / (right - left) if right != left else 0.5
+                                    y_norm = (y_data - bottom) / (top - bottom) if top != bottom else 0.5
+                                    
+                                    # Convert to array indices
+                                    rows, cols = arr.shape
+                                    col_idx = int(x_norm * cols)
+                                    row_idx = int((1 - y_norm) * rows)  # Flip y because image origin is top-left
+                                    
+                                    # Check bounds and get value
+                                    if 0 <= row_idx < rows and 0 <= col_idx < cols:
+                                        z_val = arr[row_idx, col_idx]
+                            except Exception:
+                                pass
+                            
+                            if xlim[0] <= op_point[0] <= xlim[1] and ylim[0] <= op_point[1] <= ylim[1]:
+                                if z_val is not None:
+                                    texts.append(f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f}, z={z_val:.4f}")
+                                else:
+                                    texts.append(f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f}")
+                            else:
+                                if z_val is not None:
+                                    texts.append(f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f}, z={z_val:.4f} (out of range)")
+                                else:
+                                    texts.append(f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f} (out of range)")
+                        except Exception:
+                            texts.append("Operando: N/A")
+                        
+                        # Get EC coordinates (if EC panel exists)
+                        if ec_ax is not None:
+                            try:
                                 ec_point = ec_ax.transData.inverted().transform((ev.x, ev.y))
                                 xlim = ec_ax.get_xlim()
                                 ylim = ec_ax.get_ylim()
                                 if xlim[0] <= ec_point[0] <= xlim[1] and ylim[0] <= ec_point[1] <= ylim[1]:
                                     texts.append(f"EC: x={ec_point[0]:.4f}, y={ec_point[1]:.4f}")
-                            elif ev.inaxes == ec_ax:
-                                # Try to get operando coordinates at the same figure position
-                                op_point = ax.transData.inverted().transform((ev.x, ev.y))
-                                xlim = ax.get_xlim()
-                                ylim = ax.get_ylim()
-                                if xlim[0] <= op_point[0] <= xlim[1] and ylim[0] <= op_point[1] <= ylim[1]:
-                                    texts.insert(0, f"Operando: x={op_point[0]:.4f}, y={op_point[1]:.4f}")
-                        except Exception:
-                            pass
+                                else:
+                                    texts.append(f"EC: x={ec_point[0]:.4f}, y={ec_point[1]:.4f} (out of range)")
+                            except Exception:
+                                texts.append("EC: N/A")
                         
                         coord_text.set_text('\n'.join(texts))
                     
@@ -1018,6 +1282,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     pass
             cid = fig.canvas.mpl_connect('motion_notify_event', on_move)
             cross.update({'active': True, 'vline': vline, 'hline': hline, 'coord_text': coord_text, 'cid': cid})
+            # Force immediate drawing so crosshair is visible
+            try:
+                fig.canvas.draw_idle()
+            except Exception:
+                pass
             print("Crosshair ON. Move mouse over either pane. Press 'n' again to turn off.")
         else:
             try:
@@ -1058,16 +1327,13 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         if cmd == 'e':
             try:
                 import os
-                # List existing figure files
-                folder = os.getcwd()
+                from .utils import list_files_in_subdirectory, get_organized_path, _confirm_overwrite as _co
+                # List existing figure files in Figures/ subdirectory
                 fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
-                files = []
-                try:
-                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
-                except Exception:
-                    files = []
+                file_list = list_files_in_subdirectory(fig_extensions, 'figure')
+                files = [f[0] for f in file_list]
                 if files:
-                    print("Existing figure files:")
+                    print("Existing figure files in Figures/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 
@@ -1084,7 +1350,7 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
                         if yn != 'y':
                             print_menu(); continue
-                        fname = name
+                        target = file_list[idx-1][1]  # Full path from list
                         already_confirmed = True
                     else:
                         print("Invalid number.")
@@ -1092,12 +1358,14 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 else:
                     if not os.path.splitext(fname)[1]:
                         fname += '.svg'
+                    # Use organized path unless it's an absolute path
+                    if os.path.isabs(fname):
+                        target = fname
+                    else:
+                        target = get_organized_path(fname, 'figure')
                 
-                from .utils import _confirm_overwrite as _co
-                if already_confirmed:
-                    target = fname
-                else:
-                    target = _co(fname)
+                if not already_confirmed and os.path.exists(target):
+                    target = _co(target)
                 if not target:
                     print_menu(); continue
                 _, ext = os.path.splitext(target)
@@ -1178,7 +1446,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             # Hide tick labels
                             cbar.ax.yaxis.set_ticklabels([])
                             # Add High and Low text labels
-                            import matplotlib.pyplot as plt
                             # Remove existing High/Low labels if any
                             if hasattr(fig, '_cbar_high_text'):
                                 try: fig._cbar_high_text.remove()
@@ -1228,7 +1495,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         current_mode = getattr(fig, '_colorbar_label_mode', 'normal')
                         if current_mode == 'normal':
                             # Switch to High/Low mode
-                            import matplotlib.pyplot as plt
                             cbar.ax.yaxis.set_ticklabels([])
                             # Remove existing High/Low labels if any
                             if hasattr(fig, '_cbar_high_text'):
@@ -1251,7 +1517,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             print("Colorbar labels: High/Low mode")
                         else:
                             # Switch back to normal
-                            import matplotlib.pyplot as plt
                             cbar.ax.yaxis.set_ticklabels([])
                             cbar.ax.yaxis.set_major_formatter(plt.ScalarFormatter())
                             if hasattr(fig, '_cbar_high_text'):
@@ -1310,7 +1575,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         if yn != 'y':
                             print_menu(); continue
                 dump_operando_session(target, fig=fig, ax=ax, im=im, cbar=cbar, ec_ax=ec_ax, skip_confirm=True)
-                print(f"Saved operando+EC session to {target}")
             except Exception as e:
                 print(f"Save failed: {e}")
             print_menu(); continue
@@ -1407,11 +1671,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
         elif cmd == 'l':
             # Line widths submenu for both operando and EC panes
             print("Line widths: set frame (spines) and tick widths for both operando and EC")
-            print("Enter frame/tick width (e.g., '1.5' or 'f t' for frame/tick separately)")
+            print(_colorize_inline_commands("Enter frame/tick width (e.g., '1.5' or 'f t' for frame/tick separately)"))
             print("Format examples:")
-            print("  1.5      - set both frame and ticks to 1.5")
-            print("  1.5 2.5  - set frame=1.5, ticks=2.5")
-            print("  q        - cancel")
+            print(_colorize_inline_commands("  1.5      - set both frame and ticks to 1.5"))
+            print(_colorize_inline_commands("  1.5 2.5  - set frame=1.5, ticks=2.5"))
+            print(_colorize_inline_commands("  q        - cancel"))
             
             inp = input("Line widths> ").strip().lower()
             if not inp or inp == 'q':
@@ -1548,9 +1812,9 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     pass
             while True:
                 if ec_ax is not None:
-                    print("Choose pane: o=operando, e=ec, q=back")
+                    print(_colorize_inline_commands("Choose pane: o=operando, e=ec, q=back"))
                 else:
-                    print("Choose pane: o=operando, q=back")
+                    print(_colorize_inline_commands("Choose pane: o=operando, q=back"))
                 pane = input("ot> ").strip().lower()
                 if not pane:
                     continue
@@ -1903,9 +2167,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                             fig.canvas.draw_idle()
             print_menu()
         elif cmd == 'ox':
-            cur = ax.get_xlim(); print(f"Current operando X: {cur[0]:.4g} {cur[1]:.4g}")
-            line = input("New X range (min max, blank=cancel): ").strip()
-            if line:
+            while True:
+                cur = ax.get_xlim(); print(f"Current operando X: {cur[0]:.4g} {cur[1]:.4g}")
+                line = input("New X range (min max, q=back): ").strip()
+                if not line or line.lower() == 'q':
+                    break
                 _snapshot("operando-xrange")
                 try:
                     lo, hi = map(float, line.split())
@@ -1917,9 +2183,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd == 'oy':
-            cur = ax.get_ylim(); print(f"Current operando Y: {cur[0]:.4g} {cur[1]:.4g}")
-            line = input("New Y range (min max, blank=cancel): ").strip()
-            if line:
+            while True:
+                cur = ax.get_ylim(); print(f"Current operando Y: {cur[0]:.4g} {cur[1]:.4g}")
+                line = input("New Y range (min max, q=back): ").strip()
+                if not line or line.lower() == 'q':
+                    break
                 _snapshot("operando-yrange")
                 try:
                     lo, hi = map(float, line.split())
@@ -1931,69 +2199,72 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                     print(f"Invalid range: {e}")
             print_menu()
         elif cmd == 'oz':
-            try:
-                cur = im.get_clim()
-                print(f"Current color scale range: {cur[0]:.4g} to {cur[1]:.4g}")
-            except Exception:
-                print("Could not retrieve current color scale range")
-            
-            # Initialize variables for auto-fit
-            auto_available = False
-            auto_lo = 0.0
-            auto_hi = 1.0
-            
-            # Calculate actual intensity range in the visible (current X/Y) area
-            try:
-                import numpy as _np  # Local import to ensure availability
-                arr = _np.asarray(im.get_array(), dtype=float)
-                if arr.ndim == 2 and arr.size > 0:
-                    H, W = arr.shape
-                    x0, x1, y0, y1 = im.get_extent()
-                    xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
-                    ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
-                    xl = ax.get_xlim(); yl = ax.get_ylim()
-                    xlo, xhi = (min(xl), max(xl))
-                    ylo, yhi = (min(yl), max(yl))
-                    
-                    # Map to pixel indices
-                    if xmax > xmin:
-                        c0 = int(_np.floor((xlo - xmin) / (xmax - xmin) * (W - 1)))
-                        c1 = int(_np.ceil((xhi - xmin) / (xmax - xmin) * (W - 1)))
-                    else:
-                        c0, c1 = 0, W - 1
-                    if ymax > ymin:
-                        r0 = int(_np.floor((ylo - ymin) / (ymax - ymin) * (H - 1)))
-                        r1 = int(_np.ceil((yhi - ymin) / (ymax - ymin) * (H - 1)))
-                    else:
-                        r0, r1 = 0, H - 1
-                    
-                    c0 = max(0, min(W - 1, c0)); c1 = max(0, min(W - 1, c1))
-                    r0 = max(0, min(H - 1, r0)); r1 = max(0, min(H - 1, r1))
-                    if c1 < c0: c0, c1 = c1, c0
-                    if r1 < r0: r0, r1 = r1, r0
-                    view = arr[r0:r1+1, c0:c1+1]
-                    finite = view[_np.isfinite(view)]
-                    if finite.size:
-                        auto_lo = float(_np.min(finite))
-                        auto_hi = float(_np.max(finite))
-                        print(f"Actual intensity range in visible area: {auto_lo:.4g} to {auto_hi:.4g}")
-                        auto_available = True
-                    else:
-                        print("No finite intensity data in visible area")
-                        auto_available = False
-                else:
-                    print("No intensity data available")
-                    auto_available = False
-            except Exception as e:
-                print(f"Could not compute intensity range in visible area: {e}")
+            while True:
+                try:
+                    cur = im.get_clim()
+                    print(f"Current color scale range: {cur[0]:.4g} to {cur[1]:.4g}")
+                except Exception:
+                    print("Could not retrieve current color scale range")
+                
+                # Initialize variables for auto-fit
                 auto_available = False
-            
-            if auto_available:
-                line = input("New intensity range (min max, a=auto-fit to visible, blank=cancel): ").strip()
-            else:
-                line = input("New intensity range (min max, blank=cancel): ").strip()
-            
-            if line:
+                auto_lo = 0.0
+                auto_hi = 1.0
+                
+                # Calculate actual intensity range in the visible (current X/Y) area
+                try:
+                    import numpy as _np  # Local import to ensure availability
+                    arr = _np.asarray(im.get_array(), dtype=float)
+                    if arr.ndim == 2 and arr.size > 0:
+                        H, W = arr.shape
+                        x0, x1, y0, y1 = im.get_extent()
+                        xmin, xmax = (x0, x1) if x0 <= x1 else (x1, x0)
+                        ymin, ymax = (y0, y1) if y0 <= y1 else (y1, y0)
+                        xl = ax.get_xlim(); yl = ax.get_ylim()
+                        xlo, xhi = (min(xl), max(xl))
+                        ylo, yhi = (min(yl), max(yl))
+                        
+                        # Map to pixel indices
+                        if xmax > xmin:
+                            c0 = int(_np.floor((xlo - xmin) / (xmax - xmin) * (W - 1)))
+                            c1 = int(_np.ceil((xhi - xmin) / (xmax - xmin) * (W - 1)))
+                        else:
+                            c0, c1 = 0, W - 1
+                        if ymax > ymin:
+                            r0 = int(_np.floor((ylo - ymin) / (ymax - ymin) * (H - 1)))
+                            r1 = int(_np.ceil((yhi - ymin) / (ymax - ymin) * (H - 1)))
+                        else:
+                            r0, r1 = 0, H - 1
+                        
+                        c0 = max(0, min(W - 1, c0)); c1 = max(0, min(W - 1, c1))
+                        r0 = max(0, min(H - 1, r0)); r1 = max(0, min(H - 1, r1))
+                        if c1 < c0: c0, c1 = c1, c0
+                        if r1 < r0: r0, r1 = r1, r0
+                        view = arr[r0:r1+1, c0:c1+1]
+                        finite = view[_np.isfinite(view)]
+                        if finite.size:
+                            auto_lo = float(_np.min(finite))
+                            auto_hi = float(_np.max(finite))
+                            print(f"Actual intensity range in visible area: {auto_lo:.4g} to {auto_hi:.4g}")
+                            auto_available = True
+                        else:
+                            print("No finite intensity data in visible area")
+                            auto_available = False
+                    else:
+                        print("No intensity data available")
+                        auto_available = False
+                except Exception as e:
+                    print(f"Could not compute intensity range in visible area: {e}")
+                    auto_available = False
+                
+                if auto_available:
+                    line = input("New intensity range (min max, a=auto-fit to visible, q=back): ").strip()
+                else:
+                    line = input("New intensity range (min max, q=back): ").strip()
+                
+                if not line or line.lower() == 'q':
+                    break
+                
                 _snapshot("operando-intensity-range")
                 try:
                     if line.lower() == 'a':
@@ -2024,10 +2295,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             print_menu()
         elif cmd in ('ow'):
             # Always read fresh value from attribute to avoid stale cached value
-            ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_w_in)
-            print(f"Current operando width: {ax_w_in:.2f} in")
-            val = input("New width (inches): ").strip()
-            if val:
+            while True:
+                ax_w_in = getattr(ax, '_fixed_ax_w_in', ax_w_in)
+                print(f"Current operando width: {ax_w_in:.2f} in")
+                val = input("New width (inches, q=back): ").strip()
+                if not val or val.lower() == 'q':
+                    break
                 _snapshot("operando-width")
                 try:
                     new_w = max(0.25, float(val))
@@ -2042,10 +2315,12 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print("EC panel not available (no .mpt file in folder).")
                 print_menu()
                 continue
-            ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
-            print(f"Current EC width: {ec_w_in:.2f} in")
-            val = input("New EC width (inches): ").strip()
-            if val:
+            while True:
+                ec_w_in = getattr(ec_ax, '_fixed_ec_w_in', ec_w_in)
+                print(f"Current EC width: {ec_w_in:.2f} in")
+                val = input("New EC width (inches, q=back): ").strip()
+                if not val or val.lower() == 'q':
+                    break
                 _snapshot("ec-width")
                 try:
                     new_w = max(0.25, float(val))
@@ -2062,14 +2337,38 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
             for name in ('turbo', 'batlow', 'batlowK'):
                 if name in available:
                     extras.append(name)
-            print("Perceptually uniform palettes:")
-            print("  " + ", ".join(base + extras))
-            print("Append _r to reverse (e.g., viridis_r). Blank to cancel.")
-            choice = input("Palette name: ").strip()
+            print("Recommended colormaps for scientific publications:")
+            print("  1. viridis    - Perceptually uniform (blue→yellow), colorblind-friendly")
+            print("  2. plasma     - Perceptually uniform (purple→yellow), high contrast")
+            print("  3. inferno    - Perceptually uniform (black→yellow), good for dark backgrounds")
+            print("  4. cividis    - Perceptually uniform, optimized for color vision deficiency")
+            print("  5. magma      - Perceptually uniform (black→white), excellent for grayscale")
+            print("\nOther available: " + ", ".join(base + extras))
+            print(_colorize_inline_commands("Append _r to reverse (e.g., viridis_r or 1_r). Blank to cancel."))
+            choice = input("Palette name or number (1-5): ").strip()
             if not choice:
                 print_menu(); continue
             try:
                 _snapshot("operando-colormap")
+                
+                # Map numeric selections to palette names
+                palette_map = {
+                    '1': 'viridis',
+                    '2': 'plasma',
+                    '3': 'inferno',
+                    '4': 'cividis',
+                    '5': 'magma'
+                }
+                
+                # Check for reversed palette (number_r or name_r)
+                if choice.endswith('_r'):
+                    base_choice = choice[:-2]
+                    if base_choice in palette_map:
+                        choice = palette_map[base_choice] + '_r'
+                    # else keep original choice (e.g., "viridis_r")
+                elif choice in palette_map:
+                    choice = palette_map[choice]
+                
                 if choice not in available:
                     raise ValueError(f"Unknown colormap '{choice}'")
                 im.set_cmap(choice)
@@ -2933,7 +3232,6 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                         cb_label_mode = fig_cfg.get('cb_label_mode', 'normal')
                         if cb_label_mode == 'highlow':
                             # Switch to High/Low mode
-                            import matplotlib.pyplot as plt
                             cbar.ax.yaxis.set_ticklabels([])
                             # Remove existing High/Low labels if any
                             if hasattr(fig, '_cbar_high_text'):
@@ -3200,9 +3498,11 @@ def operando_ec_interactive_menu(fig, ax, im, cbar, ec_ax):
                 print("EC panel not available (no .mpt file in folder).")
                 print_menu()
                 continue
-            cur = ec_ax.get_ylim(); print(f"Current EC time range (Y): {cur[0]:.4g} {cur[1]:.4g}")
-            line = input("New time range (min max, blank=cancel): ").strip()
-            if line:
+            while True:
+                cur = ec_ax.get_ylim(); print(f"Current EC time range (Y): {cur[0]:.4g} {cur[1]:.4g}")
+                line = input("New time range (min max, q=back): ").strip()
+                if not line or line.lower() == 'q':
+                    break
                 _snapshot("ec-time-range")
                 try:
                     lo, hi = map(float, line.split())

@@ -23,6 +23,52 @@ from .ui import (
 from .utils import _confirm_overwrite
 
 
+def _colorize_menu(text):
+    """Colorize menu items: command in cyan, colon in white, description in default."""
+    if ':' not in text:
+        return text
+    parts = text.split(':', 1)
+    cmd = parts[0].strip()
+    desc = parts[1].strip() if len(parts) > 1 else ''
+    return f"\033[96m{cmd}\033[0m: {desc}"  # Cyan for command, default for description
+
+
+def _colorize_prompt(text):
+    """Colorize commands within input prompts. Handles formats like (s=size, f=family, q=return) or (y/n)."""
+    import re
+    pattern = r'\(([a-z]+=[^,)]+(?:,\s*[a-z]+=[^,)]+)*|[a-z]+(?:/[a-z]+)+)\)'
+    
+    def colorize_match(match):
+        content = match.group(1)
+        if '/' in content:
+            parts = content.split('/')
+            colored_parts = [f"\033[96m{p.strip()}\033[0m" for p in parts]
+            return f"({'/'.join(colored_parts)})"
+        else:
+            parts = content.split(',')
+            colored_parts = []
+            for part in parts:
+                part = part.strip()
+                if '=' in part:
+                    cmd, desc = part.split('=', 1)
+                    colored_parts.append(f"\033[96m{cmd.strip()}\033[0m={desc.strip()}")
+                else:
+                    colored_parts.append(part)
+            return f"({', '.join(colored_parts)})"
+    
+    return re.sub(pattern, colorize_match, text)
+
+
+def _colorize_inline_commands(text):
+    """Colorize inline command examples in help text. Colors quoted examples and specific known commands."""
+    import re
+    # Color quoted command examples (like 's2 w5 a4', 'w2 w5')
+    text = re.sub(r"'([a-z0-9\s_-]+)'", lambda m: f"'\033[96m{m.group(1)}\033[0m'", text)
+    # Color specific known commands: q, i, l, list, help, all
+    text = re.sub(r'\b(q|i|l|list|help|all)\b(?=\s*[=,]|\s*$)', lambda m: f"\033[96m{m.group(1)}\033[0m", text)
+    return text
+
+
 def _generate_similar_color(base_color):
     """Generate a similar but distinguishable color for discharge from charge color."""
     try:
@@ -83,13 +129,17 @@ def _print_menu():
     w2 = max(18, *(len(s) for s in col2))
     w3 = max(12, *(len(s) for s in col3))
     rows = max(len(col1), len(col2), len(col3))
-    print("\nCPC interactive menu:")
-    print(f"  {'(Styles)':<{w1}} {'(Geometries)':<{w2}} {'(Options)':<{w3}}")
+    print("\n\033[1mCPC interactive menu:\033[0m")  # Bold title
+    print(f"  \033[93m{'(Styles)':<{w1}}\033[0m \033[93m{'(Geometries)':<{w2}}\033[0m \033[93m{'(Options)':<{w3}}\033[0m")  # Yellow headers
     for i in range(rows):
-        p1 = col1[i] if i < len(col1) else ""
-        p2 = col2[i] if i < len(col2) else ""
-        p3 = col3[i] if i < len(col3) else ""
-        print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
+        p1 = _colorize_menu(col1[i]) if i < len(col1) else ""
+        p2 = _colorize_menu(col2[i]) if i < len(col2) else ""
+        p3 = _colorize_menu(col3[i]) if i < len(col3) else ""
+        # Add padding to account for ANSI escape codes
+        pad1 = w1 + (9 if i < len(col1) else 0)
+        pad2 = w2 + (9 if i < len(col2) else 0)
+        pad3 = w3 + (9 if i < len(col3) else 0)
+        print(f"  {p1:<{pad1}} {p2:<{pad2}} {p3:<{pad3}}")
 
 
 def _get_current_file_artists(file_data, current_idx):
@@ -859,7 +909,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
         
         if key == 'q':
             try:
-                confirm = input("Quit CPC interactive? Remember to save! Quit now? (y/n): ").strip().lower()
+                confirm = input(_colorize_prompt("Quit CPC interactive? Remember to save! Quit now? (y/n): ")).strip().lower()
             except Exception:
                 confirm = 'y'
             if confirm == 'y':
@@ -1155,9 +1205,9 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             # Spine colors (w=top, a=left, s=bottom, d=right)
             try:
                 print("Set spine colors (with matching tick and label colors):")
-                print("  w : top spine    | a : left spine")
-                print("  s : bottom spine | d : right spine")
-                print("Example: w:red a:#4561F7 s:blue d:green")
+                print(_colorize_inline_commands("  w : top spine    | a : left spine"))
+                print(_colorize_inline_commands("  s : bottom spine | d : right spine"))
+                print(_colorize_inline_commands("Example: w:red a:#4561F7 s:blue d:green"))
                 line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
                 if line and line.lower() != 'q':
                     push_state("color-spine")
@@ -1204,16 +1254,13 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             continue
         elif key == 'e':
             try:
-                # List existing figure files
-                folder = os.getcwd()
+                # List existing figure files from Figures/ subdirectory
+                from .utils import list_files_in_subdirectory, get_organized_path
                 fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
-                files = []
-                try:
-                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
-                except Exception:
-                    files = []
+                file_list = list_files_in_subdirectory(fig_extensions, 'figure')
+                files = [f[0] for f in file_list]
                 if files:
-                    print("Existing figure files:")
+                    print("Existing figure files in Figures/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 
@@ -1222,7 +1269,6 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     _print_menu(); continue
                 
                 # Check if user selected a number
-                already_confirmed = False
                 if fname.isdigit() and files:
                     idx = int(fname)
                     if 1 <= idx <= len(files):
@@ -1230,8 +1276,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
                         if yn != 'y':
                             _print_menu(); continue
-                        fname = name
-                        already_confirmed = True
+                        target = file_list[idx-1][1]  # Full path from list
                     else:
                         print("Invalid number.")
                         _print_menu(); continue
@@ -1239,11 +1284,15 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     root, ext = os.path.splitext(fname)
                     if ext == '':
                         fname = fname + '.svg'
-                
-                if already_confirmed:
-                    target = fname
-                else:
-                    target = _confirm_overwrite(fname)
+                    # Use organized path unless it's an absolute path
+                    if os.path.isabs(fname):
+                        target = fname
+                    else:
+                        target = get_organized_path(fname, 'figure')
+                    if os.path.exists(target):
+                        yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
+                        if yn != 'y':
+                            _print_menu(); continue
                 if target:
                     # Remove numbering from legend labels before export
                     original_labels = {}
@@ -1450,15 +1499,15 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 
                 print("--- End Style ---\n")
                 # List existing files and allow numeric overwrite on export
-                try:
-                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(default_ext) or f.lower().endswith('.bpcfg')])
-                except Exception:
-                    files = []
+                from .utils import list_files_in_subdirectory, get_organized_path
+                style_extensions = ('.bps', '.bpsg', '.bpcfg')
+                file_list = list_files_in_subdirectory(style_extensions, 'style')
+                files = [f[0] for f in file_list]
                 if files:
-                    print(f"Existing {default_ext} files:")
+                    print(f"Existing style files in Styles/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
-                sub = input("Style submenu: (e=export, q=return): ").strip().lower()
+                sub = input(_colorize_prompt("Style submenu: (e=export, q=return): ")).strip().lower()
                 if sub == 'e':
                     choice = input("Enter new filename or number to overwrite (q=cancel): ").strip()
                     if not choice or choice.lower() == 'q':
@@ -1470,7 +1519,7 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                             name = files[idx-1]
                             yn = input(f"Overwrite '{name}'? (y/n): ").strip().lower()
                             if yn == 'y':
-                                target = os.path.join(os.getcwd(), name)
+                                target = file_list[idx-1][1]  # Full path from list
                         else:
                             print("Invalid number."); _print_menu(); continue
                     else:
@@ -1478,7 +1527,11 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                         # Add default extension if no extension provided
                         if not any(name.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
                             name = name + default_ext
-                        target = name if os.path.isabs(name) else os.path.join(os.getcwd(), name)
+                        # Use organized path unless it's an absolute path
+                        if os.path.isabs(name):
+                            target = name
+                        else:
+                            target = get_organized_path(name, 'style')
                         if os.path.exists(target):
                             yn = input(f"'{os.path.basename(target)}' exists. Overwrite? (y/n): ").strip().lower()
                             if yn != 'y':
@@ -1492,12 +1545,12 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
             _print_menu(); continue
         elif key == 'i':
             try:
-                try:
-                    files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
-                except Exception:
-                    files = []
+                from .utils import list_files_in_subdirectory, get_organized_path
+                style_extensions = ('.bps', '.bpsg', '.bpcfg')
+                file_list = list_files_in_subdirectory(style_extensions, 'style')
+                files = [f[0] for f in file_list]
                 if files:
-                    print("Available style files:")
+                    print("Available style files in Styles/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 inp = input("Enter number or filename (.bps/.bpsg; q=cancel): ").strip()
@@ -1507,22 +1560,25 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                 if inp.isdigit() and files:
                     idx = int(inp)
                     if 1 <= idx <= len(files):
-                        path = os.path.join(os.getcwd(), files[idx-1])
+                        path = file_list[idx-1][1]  # Full path from list
                     else:
                         print("Invalid number."); _print_menu(); continue
                 else:
-                    path = inp
-                    if not os.path.isfile(path):
-                        # Try adding extensions
+                    # User provided a filename
+                    if os.path.isabs(inp):
+                        path = inp
+                    else:
+                        # Try to find in Styles/ subdirectory with various extensions
                         found = False
                         for ext in ['.bps', '.bpsg', '.bpcfg']:
-                            alt = path if path.lower().endswith(ext) else path + ext
-                            if os.path.isfile(alt):
-                                path = alt
+                            name = inp if inp.lower().endswith(ext) else inp + ext
+                            alt_path = get_organized_path(name, 'style')
+                            if os.path.isfile(alt_path):
+                                path = alt_path
                                 found = True
                                 break
                         if not found:
-                            print("File not found."); _print_menu(); continue
+                            print("File not found in Styles/."); _print_menu(); continue
                 
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
@@ -2135,10 +2191,10 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     print(f"  left   a1:{b(wasd['left']['spine'])} a2:{b(wasd['left']['ticks'])} a3:{b(wasd['left']['minor'])} a4:{b(wasd['left']['labels'])} a5:{b(wasd['left']['title'])}")
                     print(f"  right  d1:{b(wasd['right']['spine'])} d2:{b(wasd['right']['ticks'])} d3:{b(wasd['right']['minor'])} d4:{b(wasd['right']['labels'])} d5:{b(wasd['right']['title'])}")
 
-                print("WASD toggles: direction (w/a/s/d) x action (1..5)")
-                print("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title")
-                print("Examples: 'w2 w5' to toggle top ticks and top title; 'd2 d5' for right.")
-                print("Type 'i' to invert tick direction, 'l' to change tick length, 'list' to show current state, 'q' to go back.")
+                print(_colorize_inline_commands("WASD toggles: direction (w/a/s/d) x action (1..5)"))
+                print(_colorize_inline_commands("  1=spine   2=ticks   3=minor ticks   4=tick labels   5=axis title"))
+                print(_colorize_inline_commands("Examples: 'w2 w5' to toggle top ticks and top title; 'd2 d5' for right."))
+                print(_colorize_inline_commands("Type 'i' to invert tick direction, 'l' to change tick length, 'list' to show current state, 'q' to go back."))
                 while True:
                     cmd = input("t> ").strip().lower()
                     if not cmd:
@@ -2343,8 +2399,10 @@ def cpc_interactive_menu(fig, ax, ax2, sc_charge, sc_discharge, sc_eff, file_dat
                     print("Unknown option.")
             _print_menu(); continue
         elif key == 'x':
-            rng = input("Enter x-range: min max (q=cancel): ").strip()
-            if rng and rng.lower() != 'q':
+            while True:
+                rng = input("Enter x-range: min max (q=back): ").strip()
+                if not rng or rng.lower() == 'q':
+                    break
                 parts = rng.replace(',', ' ').split()
                 if len(parts) != 2:
                     print("Need two numbers.")

@@ -57,21 +57,28 @@ def read_fullprof_rowwise(fname: str):
 
 
 def robust_loadtxt_skipheader(fname: str):
-    """Skip comments/non-numeric lines and load at least 2-column numeric data."""
+    """Skip comments/non-numeric lines and load at least 2-column numeric data.
+    
+    Flexibly handles comma, space, tab, or mixed delimiters.
+    """
     data_lines = []
     with open(fname, "r") as f:
         for line in f:
             ls = line.strip()
             if not ls or ls.startswith("#"):
                 continue
+            # Normalize delimiters: replace commas and tabs with spaces
+            # This handles CSV (comma), TSV (tab), space-separated, and mixed formats
+            ls_normalized = ls.replace(",", " ").replace("\t", " ")
             floats = []
-            for p in ls.replace(",", " ").split():
+            for p in ls_normalized.split():
                 try:
                     floats.append(float(p))
                 except ValueError:
                     break
             if len(floats) >= 2:
-                data_lines.append(ls)
+                # Store the normalized line (with all delimiters converted to spaces)
+                data_lines.append(ls_normalized)
     if not data_lines:
         raise ValueError(f"No numeric data found in {fname}")
     from io import StringIO
@@ -90,7 +97,9 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
     
     Returns:
         For 'gc' mode: (specific_capacity_data, voltage_data, cycle_numbers, charge_mask, discharge_mask)
-        For 'time' mode: (time_data, voltage_data, current_data)
+        For 'time' mode: (time_data, voltage_data, current_data, x_label, y_label)
+            - For EC-Lab files: returns standard time/voltage with labels 'Time (h)' and 'Voltage (V)'
+            - For simple files: returns raw x/y data with header names or 'x'/'y' as labels
         For 'cpc' mode: (cycle_numbers, charge_capacity, discharge_capacity, efficiency)
     """
     import re
@@ -105,29 +114,51 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
     # Handle simple 2-column time/voltage export format (for operando time mode)
     if not is_eclab_format and mode == 'time':
         try:
-            # Read with tab delimiter and handle European comma decimal separator
+            # Read with flexible delimiter (tab or whitespace) and handle European comma decimal separator
             with open(fname, 'r', encoding='utf-8', errors='ignore') as f:
-                # Skip header line
-                f.readline()
-                time_vals = []
-                voltage_vals = []
+                x_vals = []
+                y_vals = []
+                x_label = 'x'
+                y_label = 'y'
+                first_line_processed = False
+                
                 for line in f:
                     line = line.strip()
                     if not line:
                         continue
-                    parts = line.split('\t')
+                    
+                    # Try to parse as numeric data
+                    # First try tab-separated, then space-separated
+                    parts = line.split('\t') if '\t' in line else line.split()
+                    
                     if len(parts) >= 2:
-                        # Replace comma with period for European locale
-                        time_vals.append(float(parts[0].replace(',', '.')))
-                        voltage_vals.append(float(parts[1].replace(',', '.')))
+                        try:
+                            # Try to parse as numbers (replace comma with period for European locale)
+                            x_val = float(parts[0].replace(',', '.'))
+                            y_val = float(parts[1].replace(',', '.'))
+                            x_vals.append(x_val)
+                            y_vals.append(y_val)
+                            first_line_processed = True
+                        except ValueError:
+                            # This line contains non-numeric data (likely header)
+                            if not first_line_processed:
+                                # This is a header line, extract column names
+                                x_label = parts[0].strip()
+                                y_label = parts[1].strip() if len(parts) > 1 else 'y'
+                                continue
+                            else:
+                                # Stop reading if we hit non-numeric after data started
+                                break
                 
-                if not time_vals:
+                if not x_vals:
                     raise ValueError("No data found in file")
                 
-                time_s = np.array(time_vals)
-                voltage_v = np.array(voltage_vals)
-                current_mA = np.zeros_like(time_s)  # No current data in simple format
-                return time_s, voltage_v, current_mA
+                x_data = np.array(x_vals)
+                y_data = np.array(y_vals)
+                current_mA = np.zeros_like(x_data)  # No current data in simple format
+                
+                # Return raw data without conversion, and include column labels
+                return x_data, y_data, current_mA, x_label, y_label
         except Exception as e:
             raise ValueError(f"Failed to read simple .mpt format: {e}")
     
@@ -338,7 +369,8 @@ def read_mpt_file(fname: str, mode: str = 'gc', mass_mg: float = None):
         else:
             current_data = data[:, current_col]
         
-        return (time_data, voltage_data, current_data)
+        # For EC-Lab files, return standard labels
+        return (time_data, voltage_data, current_data, 'Time (h)', 'Voltage (V)')
     
     elif mode == 'cv':
         # Cyclic voltammetry: voltage vs current, split by cycle
@@ -572,10 +604,12 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
         capacity_x: per-point capacity to plot on X (mAh or mAh g⁻¹ depending on availability/flag)
         voltage:    voltage in V
         cycle_numbers: integer cycle index; if not present in CSV, inferred by pairing alternating
-                       voltage-trend segments so that Cycle 1 = first segment (charge or discharge)
+                       charge/discharge segments so that Cycle 1 = first segment (charge or discharge)
                        followed by the next segment, Cycle 2 = third+fourth segments, etc.
-        charge_mask: boolean mask where voltage trend is increasing (charging)
-        discharge_mask: boolean mask where voltage trend is decreasing (discharging)
+        charge_mask: boolean mask indicating charging segments (determined by Step Type column if present,
+                     otherwise by split capacity columns 'Chg. Spec. Cap.' / 'DChg. Spec. Cap.',
+                     or fallback to voltage trend if neither available)
+        discharge_mask: boolean mask indicating discharging segments (inverse of charge_mask)
     """
     import csv
 
@@ -662,9 +696,12 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
         elif (not use_specific) and cap_abs_idx is not None:
             cap_x[k] = _to_float(row[cap_abs_idx])
 
-    # --- Derive charge/discharge from Step Type column (if available) or voltage trend ---
-    # First try to use explicit Step Type column (e.g., "CC Chg", "CC DChg", "Charge", "Discharge")
+    # --- Derive charge/discharge from Step Type column, capacity columns, or voltage trend ---
+    # Priority 1: Use explicit Step Type column (e.g., "CC Chg", "CC DChg", "Charge", "Discharge")
     is_charge = np.zeros(n, dtype=bool)
+    used_step_type = False
+    used_capacity_columns = False
+    
     if step_type_idx is not None:
         # Parse Step Type to determine charge/discharge
         for k, row in enumerate(rows):
@@ -685,8 +722,47 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
             else:
                 # For Rest/CV, inherit from previous row (or default to charge for first row)
                 is_charge[k] = is_charge[k-1] if k > 0 else True
+        used_step_type = True
+    
+    # Priority 2: Use split charge/discharge capacity columns if available
+    elif (use_specific and cap_spec_chg_idx is not None and cap_spec_dch_idx is not None) or \
+         (not use_specific and cap_abs_chg_idx is not None and cap_abs_dch_idx is not None):
+        # Read capacity columns to determine charge/discharge
+        # Whichever column has non-zero value indicates the segment type
+        cap_chg_vals = np.empty(n, dtype=float)
+        cap_dch_vals = np.empty(n, dtype=float)
+        
+        if use_specific:
+            chg_col_idx = cap_spec_chg_idx
+            dch_col_idx = cap_spec_dch_idx
+        else:
+            chg_col_idx = cap_abs_chg_idx
+            dch_col_idx = cap_abs_dch_idx
+        
+        for k, row in enumerate(rows):
+            if len(row) < len(header):
+                row = row + [''] * (len(header) - len(row))
+            cap_chg_vals[k] = _to_float(row[chg_col_idx])
+            cap_dch_vals[k] = _to_float(row[dch_col_idx])
+        
+        # A point is charge if its charge capacity > threshold AND discharge capacity ≈ 0
+        # A point is discharge if its discharge capacity > threshold AND charge capacity ≈ 0
+        threshold = 1e-6
+        for k in range(n):
+            chg_val = cap_chg_vals[k] if not np.isnan(cap_chg_vals[k]) else 0.0
+            dch_val = cap_dch_vals[k] if not np.isnan(cap_dch_vals[k]) else 0.0
+            
+            if chg_val > threshold and dch_val <= threshold:
+                is_charge[k] = True
+            elif dch_val > threshold and chg_val <= threshold:
+                is_charge[k] = False
+            else:
+                # Both zero or both non-zero: inherit from previous or default
+                is_charge[k] = is_charge[k-1] if k > 0 else True
+        used_capacity_columns = True
+    
+    # Priority 3: Fallback to voltage trend (robust to current sign conventions)
     else:
-        # Fallback: derive charge/discharge by voltage trend (robust to current sign conventions)
         # Compute a tolerant derivative and propagate direction over plateaus (|dv| <= eps)
         # eps based on dynamic range to avoid noise flips
         v_clean = np.array(voltage, dtype=float)
@@ -734,8 +810,8 @@ def read_ec_csv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.ndarr
             prev_dir = dir_set
 
     # Build run-length encoding and optionally merge very short flicker runs
-    # (Only apply smoothing when using voltage trend detection, not when using explicit Step Type)
-    if step_type_idx is None:
+    # (Only apply smoothing when using voltage trend detection, not when using explicit methods)
+    if not used_step_type and not used_capacity_columns:
         # Smoothing logic for voltage-trend-based detection
         run_starts = [0]
         for k in range(1, n):
@@ -817,7 +893,11 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
 
     Returns: (voltage, dqdv, cycles, charge_mask, discharge_mask, y_label)
     Chooses specific dQm/dV when available if prefer_specific else falls back to absolute dQ/dV.
-    Cycles and masks are inferred by voltage trend, same as read_ec_csv_file.
+    Charge/discharge detection uses the same priority as GC mode:
+      1. Step Type column (if present)
+      2. Split capacity columns 'Chg. Spec. Cap.(mAh/g)' / 'DChg. Spec. Cap.(mAh/g)'
+      3. Voltage trend as fallback
+    Cycles are inferred by pairing alternating charge/discharge segments.
     """
     import csv
 
@@ -841,8 +921,17 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
         return name_to_idx.get(name, None)
 
     v_idx = _find('Voltage(V)')
+    i_idx = _find('Current(mA)')
     dq_abs_idx = _find('dQ/dV(mAh/V)')
     dq_spec_idx = _find('dQm/dV(mAh/V.g)')
+    step_type_idx = _find('Step Type')  # Optional: explicitly indicates charge/discharge
+    
+    # Also look for capacity columns to help determine charge/discharge
+    cap_spec_chg_idx = _find('Chg. Spec. Cap.(mAh/g)')
+    cap_spec_dch_idx = _find('DChg. Spec. Cap.(mAh/g)')
+    cap_abs_chg_idx = _find('Chg. Cap.(mAh)')
+    cap_abs_dch_idx = _find('DChg. Cap.(mAh)')
+    
     if v_idx is None:
         raise ValueError("CSV missing required 'Voltage(V)' column for dQ/dV plot")
     if dq_abs_idx is None and dq_spec_idx is None:
@@ -861,8 +950,6 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
     voltage = np.empty(n, dtype=float)
     dqdv = np.empty(n, dtype=float)
     current = np.zeros(n, dtype=float)
-
-    i_idx = _find('Current(mA)')
     def _to_float(val: str) -> float:
         try:
             return float(val.strip()) if isinstance(val, str) else float(val)
@@ -880,73 +967,113 @@ def read_ec_csv_dqdv_file(fname: str, prefer_specific: bool = True) -> Tuple[np.
         if i_idx is not None:
             current[k] = _to_float(row[i_idx])
 
-    # Derive charge/discharge masks and cycles by voltage trend (reuse core from read_ec_csv_file)
-    v_clean = np.array(voltage, dtype=float)
-    v_min = np.nanmin(v_clean) if np.isfinite(v_clean).any() else 0.0
-    v_max = np.nanmax(v_clean) if np.isfinite(v_clean).any() else 1.0
-    v_span = max(1e-6, float(v_max - v_min))
-    eps = max(1e-6, 1e-4 * v_span)
-    dv = np.diff(v_clean)
-    dv = np.nan_to_num(dv, nan=0.0, posinf=0.0, neginf=0.0)
-
-    # Initial dir from dv or fallback to current sign
-    init_dir = None
-    for d in dv[: min(500, dv.size)]:
-        if abs(d) > eps:
-            init_dir = (d > 0)
-            break
-    if init_dir is None:
-        nz = None
-        for i_val in current:
-            if abs(i_val) > 1e-12 and np.isfinite(i_val):
-                nz = (i_val >= 0)
-                break
-        init_dir = True if nz is None else bool(nz)
-
-    npts = n
-    is_charge = np.zeros(npts, dtype=bool)
-    prev_dir = init_dir
-    for k in range(npts):
-        dir_set = None
-        # Prefer forward-looking difference so the first sample of a new run adopts the new direction
-        if k < npts - 1:
-            df = dv[k]
-            if abs(df) > eps:
-                dir_set = (df > 0)
-        # If no informative forward diff at k, search further ahead
-        if dir_set is None:
-            j = k + 1
-            while j < npts - 1:
-                d = dv[j]
-                if abs(d) > eps:
-                    dir_set = (d > 0)
-                    break
-                j += 1
-        # If still none, fall back to immediate backward diff, then scan backward
-        if dir_set is None and k > 0:
-            db = dv[k-1]
-            if abs(db) > eps:
-                dir_set = (db > 0)
+    # --- Derive charge/discharge using same logic as GC mode ---
+    # Priority 1: Use explicit Step Type column
+    is_charge = np.zeros(n, dtype=bool)
+    used_step_type = False
+    used_capacity_columns = False
+    
+    if step_type_idx is not None:
+        for k, row in enumerate(rows):
+            if len(row) < len(header):
+                row = row + [''] * (len(header) - len(row))
+            step_type = str(row[step_type_idx]).strip().lower()
+            is_dchg = 'dchg' in step_type or 'dischg' in step_type or step_type.startswith('dis')
+            is_chg = (not is_dchg) and (('chg' in step_type) or ('charge' in step_type))
+            if is_chg:
+                is_charge[k] = True
+            elif is_dchg:
+                is_charge[k] = False
             else:
-                j = k - 1
-                while j >= 0:
+                is_charge[k] = is_charge[k-1] if k > 0 else True
+        used_step_type = True
+    
+    # Priority 2: Use split charge/discharge capacity columns if available
+    elif (cap_spec_chg_idx is not None and cap_spec_dch_idx is not None) or \
+         (cap_abs_chg_idx is not None and cap_abs_dch_idx is not None):
+        # Prefer specific capacity columns if they exist
+        if cap_spec_chg_idx is not None and cap_spec_dch_idx is not None:
+            chg_col_idx = cap_spec_chg_idx
+            dch_col_idx = cap_spec_dch_idx
+        else:
+            chg_col_idx = cap_abs_chg_idx
+            dch_col_idx = cap_abs_dch_idx
+        
+        cap_chg_vals = np.empty(n, dtype=float)
+        cap_dch_vals = np.empty(n, dtype=float)
+        
+        for k, row in enumerate(rows):
+            if len(row) < len(header):
+                row = row + [''] * (len(header) - len(row))
+            cap_chg_vals[k] = _to_float(row[chg_col_idx])
+            cap_dch_vals[k] = _to_float(row[dch_col_idx])
+        
+        # Determine charge/discharge based on which capacity is non-zero
+        threshold = 1e-6
+        for k in range(n):
+            chg_val = cap_chg_vals[k] if not np.isnan(cap_chg_vals[k]) else 0.0
+            dch_val = cap_dch_vals[k] if not np.isnan(cap_dch_vals[k]) else 0.0
+            
+            if chg_val > threshold and dch_val <= threshold:
+                is_charge[k] = True
+            elif dch_val > threshold and chg_val <= threshold:
+                is_charge[k] = False
+            else:
+                is_charge[k] = is_charge[k-1] if k > 0 else True
+        used_capacity_columns = True
+    
+    # Priority 3: Fallback to voltage trend
+    else:
+        v_clean = np.array(voltage, dtype=float)
+        v_min = np.nanmin(v_clean) if np.isfinite(v_clean).any() else 0.0
+        v_max = np.nanmax(v_clean) if np.isfinite(v_clean).any() else 1.0
+        v_span = max(1e-6, float(v_max - v_min))
+        eps = max(1e-6, 1e-4 * v_span)
+        dv = np.diff(v_clean)
+        dv = np.nan_to_num(dv, nan=0.0, posinf=0.0, neginf=0.0)
+
+        init_dir = None
+        for d in dv[: min(500, dv.size)]:
+            if abs(d) > eps:
+                init_dir = (d > 0)
+                break
+        if init_dir is None:
+            nz = None
+            for i_val in current:
+                if abs(i_val) > 1e-12 and np.isfinite(i_val):
+                    nz = (i_val >= 0)
+                    break
+            init_dir = True if nz is None else bool(nz)
+        
+        prev_dir = init_dir
+        for k in range(n):
+            dir_set = None
+            # Prefer backward-looking difference to keep the last sample of a run with its run
+            if k > 0:
+                db = dv[k-1]
+                if abs(db) > eps:
+                    dir_set = (db > 0)
+            # Fallback: look forward to the next informative change
+            if dir_set is None:
+                j = k
+                while j < n-1:
                     d = dv[j]
                     if abs(d) > eps:
                         dir_set = (d > 0)
                         break
-                    j -= 1
-        if dir_set is None:
-            dir_set = prev_dir
-        is_charge[k] = dir_set
-        prev_dir = dir_set
+                    j += 1
+            if dir_set is None:
+                dir_set = prev_dir
+            is_charge[k] = dir_set
+            prev_dir = dir_set
 
     # Build runs and infer cycles (pair alternate runs)
     run_starts = [0]
-    for k in range(1, npts):
+    for k in range(1, n):
         if is_charge[k] != is_charge[k-1]:
             run_starts.append(k)
-    run_starts.append(npts)
-    inferred_cycles = np.ones(npts, dtype=int)
+    run_starts.append(n)
+    inferred_cycles = np.ones(n, dtype=int)
     for r in range(len(run_starts)-1):
         a, b = run_starts[r], run_starts[r+1]
         cyc = (r // 2) + 1

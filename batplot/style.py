@@ -153,6 +153,12 @@ def print_style_info(
         except Exception:
             names_visible = True
     print(f"Curve names (h): {'shown' if names_visible else 'hidden'}")
+    
+    # Stack label position (only relevant in stack mode)
+    if getattr(args, 'stack', False):
+        stack_label_at_bottom = getattr(fig, '_stack_label_at_bottom', False)
+        label_pos = "bottom-right" if stack_label_at_bottom else "top-right"
+        print(f"Stack label position (h>s): {label_pos}")
 
     # Curves
     print("Lines (style):")
@@ -280,6 +286,7 @@ def export_style_config(
                 "x": ax.xaxis.label.get_color(),
                 "y": ax.yaxis.label.get_color(),
             },
+            "grid": ax.xaxis._gridOnMajor if hasattr(ax.xaxis, '_gridOnMajor') else False,
             "lines": [
                 {
                     "index": i,
@@ -313,6 +320,9 @@ def export_style_config(
                 cfg["curve_names_visible"] = bool(label_text_objects[0].get_visible())
             except Exception:
                 pass
+        
+        # Save stack label position preference
+        cfg["stack_label_at_bottom"] = getattr(fig, '_stack_label_at_bottom', False)
         if cif_tick_series:
             cfg["cif_ticks"] = [
                 {"index": i, "color": color}
@@ -349,15 +359,15 @@ def export_style_config(
             print(f"Unknown option: {exp_choice}")
             return
         
-        # List existing files for user convenience
+        # List existing files for user convenience (from Styles subdirectory)
         import os
-        try:
-            style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith((default_ext, '.bpcfg'))])
-        except Exception:
-            style_files = []
+        from .utils import list_files_in_subdirectory, get_organized_path
+        
+        file_list = list_files_in_subdirectory((default_ext, '.bpcfg'), 'style')
+        style_files = [f[0] for f in file_list]
 
         if style_files:
-            print(f"\nExisting {default_ext} files:")
+            print(f"\nExisting {default_ext} files in Styles/:")
             for i, f in enumerate(style_files, 1):
                 print(f"  {i}: {f}")
 
@@ -368,17 +378,23 @@ def export_style_config(
 
         # Determine the target path
         if choice.isdigit() and style_files and 1 <= int(choice) <= len(style_files):
-            target_path = style_files[int(choice) - 1]
+            target_path = file_list[int(choice) - 1][1]  # Full path from list
         else:
             # Add default extension if no extension provided
             if not any(choice.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
-                target_path = f"{choice}{default_ext}"
+                filename_with_ext = f"{choice}{default_ext}"
             else:
-                target_path = choice
+                filename_with_ext = choice
+            
+            # Use organized path unless it's an absolute path
+            if os.path.isabs(filename_with_ext):
+                target_path = filename_with_ext
+            else:
+                target_path = get_organized_path(filename_with_ext, 'style')
 
         # Only prompt ONCE for overwrite if the file exists
         if os.path.exists(target_path):
-            yn = input(f"Overwrite '{target_path}'? (y/n): ").strip().lower()
+            yn = input(f"Overwrite '{os.path.basename(target_path)}'? (y/n): ").strip().lower()
             if yn != 'y':
                 print("Style export canceled.")
                 return
@@ -748,6 +764,13 @@ def apply_style_config(
             except Exception as e:
                 print(f"Warning: Could not restore curve names visibility: {e}")
 
+        # Restore stack label position preference
+        if "stack_label_at_bottom" in cfg:
+            try:
+                fig._stack_label_at_bottom = bool(cfg["stack_label_at_bottom"])
+            except Exception as e:
+                print(f"Warning: Could not restore stack label position: {e}")
+
         # Restore rotation angle
         if "rotation_angle" in cfg:
             try:
@@ -755,8 +778,19 @@ def apply_style_config(
             except Exception as e:
                 print(f"Warning: Could not restore rotation angle: {e}")
 
+        # Restore grid state
+        if "grid" in cfg:
+            try:
+                if bool(cfg["grid"]):
+                    ax.grid(True, color='0.85', linestyle='-', linewidth=0.5, alpha=0.7)
+                else:
+                    ax.grid(False)
+            except Exception as e:
+                print(f"Warning: Could not restore grid state: {e}")
+
         # Re-run label placement with current mode (no mode changes via Styles)
-        update_labels_func(ax, y_data_list, label_text_objects, args.stack)
+        stack_label_bottom = getattr(fig, '_stack_label_at_bottom', False)
+        update_labels_func(ax, y_data_list, label_text_objects, args.stack, stack_label_bottom)
 
         # Margin / overflow handling
         try:

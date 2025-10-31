@@ -95,6 +95,58 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
     if not hasattr(ax, '_rotation_angle'):
         ax._rotation_angle = 0
 
+    # Initialize stack label position state (True = bottom, False = top/max)
+    if not hasattr(fig, '_stack_label_at_bottom'):
+        fig._stack_label_at_bottom = False
+
+    # ANSI color codes for menu highlighting
+    def colorize_menu(text):
+        """Colorize menu items: command in cyan, colon in white, description in default."""
+        if ':' not in text:
+            return text
+        parts = text.split(':', 1)
+        cmd = parts[0].strip()
+        desc = parts[1].strip() if len(parts) > 1 else ''
+        return f"\033[96m{cmd}\033[0m: {desc}"  # Cyan for command, default for description
+    
+    def colorize_prompt(text):
+        """Colorize commands within input prompts. Handles formats like (s=size, f=family, q=return) or (y/n) or (q=cancel)."""
+        import re
+        # Pattern to match parenthesized command lists like (s=size, f=family, q=return) or (y/n) or (m/p/s/t/q) or (q=cancel)
+        pattern = r'\(([a-z]+=[^,)]+(?:,\s*[a-z]+=[^,)]+)*|[a-z]+(?:/[a-z]+)+)\)'
+        
+        def colorize_match(match):
+            content = match.group(1)
+            # Check if it's slash-separated (like y/n or m/p/s/t/q)
+            if '/' in content:
+                parts = content.split('/')
+                colored_parts = [f"\033[96m{p.strip()}\033[0m" for p in parts]
+                return f"({'/'.join(colored_parts)})"
+            # Otherwise it's equals-separated (like s=size, f=family or q=cancel)
+            else:
+                parts = content.split(',')
+                colored_parts = []
+                for part in parts:
+                    part = part.strip()
+                    if '=' in part:
+                        cmd, desc = part.split('=', 1)
+                        colored_parts.append(f"\033[96m{cmd.strip()}\033[0m={desc.strip()}")
+                    else:
+                        colored_parts.append(part)
+                return f"({', '.join(colored_parts)})"
+        
+        return re.sub(pattern, colorize_match, text)
+    
+    def colorize_inline_commands(text):
+        """Colorize inline command examples in help text. Colors quoted examples and specific known commands."""
+        import re
+        # Color quoted command examples (like 's2 w5 a4', 'w2 w5', or 'all magma_r')
+        text = re.sub(r"'([a-z0-9\s_-]+)'", lambda m: f"'\033[96m{m.group(1)}\033[0m'", text)
+        # Color specific known single-letter commands: q, i, l, when they appear as standalone commands
+        # Pattern: word boundary + (q|i|l|list|help|all) + space/equals/comma/end
+        text = re.sub(r'\b(q|i|l|list|help|all)\b(?=\s*[=,]|\s*$)', lambda m: f"\033[96m{m.group(1)}\033[0m", text)
+        return text
+    
     # REPLACED print_main_menu with column layout (now hides 'd' and 'y' in --stack)
     is_diffraction = use_Q or (not use_r and not use_E and not use_k and not use_rft)  # 2θ or Q
     def print_main_menu():
@@ -103,7 +155,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             has_cif = any(f.lower().endswith('.cif') for f in args.files)
         except Exception:
             pass
-        col1 = ["c: colors", "f: font", "l: line", "ro: rotate", "t: toggle axes", "g: size", "h: show/hide names"]
+        col1 = ["c: colors", "f: font", "l: line", "ro: rotate", "t: toggle axes", "g: size", "h: legend"]
         if has_cif:
             col1.append("z: hkl")
             col1.append("j: CIF titles")
@@ -117,18 +169,23 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
         
         if not is_diffraction:
             col3 = [item for item in col3 if not item.startswith("n:")]
-        # Dynamic widths for cleaner alignment across terminals
+        # Dynamic widths for cleaner alignment across terminals (account for ANSI codes)
+        # Use plain text length for width calculations
         w1 = max(len("(Styles)"), *(len(s) for s in col1), 16)
         w2 = max(len("(Geometries)"), *(len(s) for s in col2), 16)
         w3 = max(len("(Options)"), *(len(s) for s in col3), 16)
         rows = max(len(col1), len(col2), len(col3))
-        print("\nInteractive menu:")
-        print(f"  {'(Styles)':<{w1}} {'(Geometries)':<{w2}} {'(Options)':<{w3}}")
+        print("\n\033[1mInteractive menu:\033[0m")  # Bold title
+        print(f"  \033[93m{'(Styles)':<{w1}}\033[0m \033[93m{'(Geometries)':<{w2}}\033[0m \033[93m{'(Options)':<{w3}}\033[0m")  # Yellow headers
         for i in range(rows):
-            p1 = col1[i] if i < len(col1) else ""
-            p2 = col2[i] if i < len(col2) else ""
-            p3 = col3[i] if i < len(col3) else ""
-            print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
+            p1 = colorize_menu(col1[i]) if i < len(col1) else ""
+            p2 = colorize_menu(col2[i]) if i < len(col2) else ""
+            p3 = colorize_menu(col3[i]) if i < len(col3) else ""
+            # Add padding to account for ANSI escape codes (9 chars per colorized item)
+            pad1 = w1 + (9 if i < len(col1) else 0)
+            pad2 = w2 + (9 if i < len(col2) else 0)
+            pad3 = w3 + (9 if i < len(col3) else 0)
+            print(f"  {p1:<{pad1}} {p2:<{pad2}} {p3:<{pad3}}")
 
     # --- Helper for spine visibility ---
     def set_spine_visible(which, visible):
@@ -144,7 +201,8 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
     ax.set_aspect('auto', adjustable='datalim')
 
     def on_xlim_change(event_ax):
-        update_labels(event_ax, y_data_list, label_text_objects, args.stack)
+        stack_label_bottom = getattr(fig, '_stack_label_at_bottom', False)
+        update_labels(event_ax, y_data_list, label_text_objects, args.stack, stack_label_bottom)
         # Extend CIF ticks if needed when user pans/zooms horizontally
         try:
             if (
@@ -684,7 +742,9 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 "cif_tick_series": (list(getattr(_bp, 'cif_tick_series')) if (_bp is not None and hasattr(_bp, 'cif_tick_series')) else None),
                 "show_cif_hkl": (bool(getattr(_bp, 'show_cif_hkl')) if _bp is not None and hasattr(_bp, 'show_cif_hkl') else False),
                 "show_cif_titles": (bool(getattr(_bp, 'show_cif_titles')) if _bp is not None and hasattr(_bp, 'show_cif_titles') else True),
-                "rotation_angle": getattr(ax, '_rotation_angle', 0)
+                "rotation_angle": getattr(ax, '_rotation_angle', 0),
+                "stack_label_at_bottom": getattr(fig, '_stack_label_at_bottom', False),
+                "grid": ax.xaxis._gridOnMajor if hasattr(ax.xaxis, '_gridOnMajor') else False
             }
             # Line + data arrays
             for i, ln in enumerate(ax.lines):
@@ -896,6 +956,20 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             if 'rotation_angle' in snap:
                 ax._rotation_angle = snap['rotation_angle']
 
+            # Restore legend position (stack_label_at_bottom)
+            if 'stack_label_at_bottom' in snap:
+                fig._stack_label_at_bottom = bool(snap['stack_label_at_bottom'])
+
+            # Restore grid state
+            if 'grid' in snap:
+                try:
+                    if snap['grid']:
+                        ax.grid(True, color='0.85', linestyle='-', linewidth=0.5, alpha=0.7)
+                    else:
+                        ax.grid(False)
+                except Exception:
+                    pass
+
             # CIF tick sets & label visibility (write back to batplot module globals)
             if _bp is not None and snap.get("cif_tick_series") is not None and hasattr(_bp, 'cif_tick_series'):
                 try:
@@ -924,7 +998,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 base = labels[i] if i < len(labels) else ""
                 txt.set_text(f"{i+1}: {base}")
 
-            update_labels(ax, y_data_list, label_text_objects, args.stack)
+            update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
             try:
                 globals()['tick_state'] = tick_state
             except Exception:
@@ -950,7 +1024,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             continue
 
         if key == 'q':
-            confirm = input("Quit interactive? Remember to save (e=export, s=save). Quit now? (y/n): ").strip().lower()
+            confirm = input(colorize_prompt("Quit interactive? Remember to save (e=export, s=save). Quit now? (y/n): ")).strip().lower()
             if confirm == 'y':
                 break
             else:
@@ -982,20 +1056,41 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error toggling hkl labels: {e}")
             continue
-        elif key == 'h':  # toggle curve name labels
+        elif key == 'h':  # legend submenu
             try:
-                # Check first label's visibility
-                first_visible = label_text_objects[0].get_visible() if label_text_objects else True
-                new_state = not first_visible
-                # Toggle all curve name labels
-                for lbl in label_text_objects:
-                    lbl.set_visible(new_state)
-                # Store state on figure
-                fig._curve_names_visible = new_state
-                fig.canvas.draw_idle()
-                print(f"Curve name labels {'ON' if new_state else 'OFF'}.")
+                while True:
+                    print("\n\033[1mLegend submenu:\033[0m")
+                    print(f"  {colorize_menu('v: show/hide curve names')}")
+                    current_pos = "bottom-right" if getattr(fig, '_stack_label_at_bottom', False) else "top-right"
+                    print(f"  {colorize_menu(f's: legend position (current: {current_pos})')}")
+                    print(f"  {colorize_menu('q: back to main menu')}")
+                    sub_key = input("Choose: ").strip().lower()
+                    
+                    if sub_key == 'q':
+                        break
+                    elif sub_key == 'v':
+                        # Toggle curve name labels visibility
+                        first_visible = label_text_objects[0].get_visible() if label_text_objects else True
+                        new_state = not first_visible
+                        for lbl in label_text_objects:
+                            lbl.set_visible(new_state)
+                        fig._curve_names_visible = new_state
+                        stack_label_bottom = getattr(fig, '_stack_label_at_bottom', False)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, stack_label_bottom)
+                        fig.canvas.draw_idle()
+                        print(f"Curve name labels {'ON' if new_state else 'OFF'}.")
+                    elif sub_key == 's':
+                        # Toggle label position between top-right and bottom-right
+                        current_bottom = getattr(fig, '_stack_label_at_bottom', False)
+                        fig._stack_label_at_bottom = not current_bottom
+                        new_pos = "bottom-right" if fig._stack_label_at_bottom else "top-right"
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, fig._stack_label_at_bottom)
+                        fig.canvas.draw_idle()
+                        print(f"Legend position changed to {new_pos}.")
+                    else:
+                        print("Unknown option.")
             except Exception as e:
-                print(f"Error toggling curve names: {e}")
+                print(f"Error in legend submenu: {e}")
             continue
         elif key == 'j':  # toggle CIF title labels (filename labels)
             try:
@@ -1105,14 +1200,14 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 except Exception:
                     pass
                 while True:
-                    print("Color menu:")
-                    print("  m : manual color mapping  (e.g., 1:red 2:#00B006)")
-                    print("  p : apply colormap palette to a range (e.g., 1-3 viridis)")
-                    print("  s : spine colors (e.g., w:red a:#4561F7 for top & left)")
+                    print("\033[1mColor menu:\033[0m")
+                    print(f"  {colorize_menu('m : manual color mapping  (e.g., 1:red 2:#00B006)')}")
+                    print(f"  {colorize_menu('p : apply colormap palette to a range (e.g., 1-3 viridis)')}")
+                    print(f"  {colorize_menu('s : spine colors (e.g., w:red a:#4561F7 for top & left)')}")
                     if has_cif and (_bp is not None and getattr(_bp, 'cif_tick_series', None)):
-                        print("  t : change CIF tick set color (e.g., 1:red 2:#888888)")
-                    print("  q : return to main menu")
-                    sub = input("Choose (m/p/s/t/q): ").strip().lower()
+                        print(f"  {colorize_menu('t : change CIF tick set color (e.g., 1:red 2:#888888)')}")
+                    print(f"  {colorize_menu('q : return to main menu')}")
+                    sub = input(colorize_prompt("Choose (m/p/s/t/q): ")).strip().lower()
                     if sub == 'q':
                         break
                     if sub == '':
@@ -1140,13 +1235,15 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                         print(f"Index out of range: {idx_str}")
                                 except ValueError:
                                     print(f"Bad index: {idx_str}")
+                            # Update label colors to match new curve colors
+                            update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         fig.canvas.draw()
                     elif sub == 's':
                         # Spine colors (w=top, a=left, s=bottom, d=right)
                         print("Set spine colors (with matching tick and label colors):")
-                        print("  w : top spine    | a : left spine")
-                        print("  s : bottom spine | d : right spine")
-                        print("Example: w:red a:#4561F7 s:blue d:green")
+                        print(colorize_inline_commands("  w : top spine    | a : left spine"))
+                        print(colorize_inline_commands("  s : bottom spine | d : right spine"))
+                        print(colorize_inline_commands("Example: w:red a:#4561F7 s:blue d:green"))
                         line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
                         if not line or line.lower() == 'q':
                             print("Canceled.")
@@ -1219,7 +1316,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                             extras.append('batlowK')
                         print("Common perceptually uniform palettes:")
                         print("  " + ", ".join(base_palettes + extras[:2]))
-                        print("Example: 1-4 viridis   or: all magma_r   or: 1-3,5 plasma, _r for reverse")
+                        print(colorize_inline_commands("Example: 1-4 viridis   or: all magma_r   or: 1-3,5 plasma, _r for reverse"))
                         line = input("Enter range(s) and palette (e.g., '1-3 viridis') or q: ").strip()
                         if not line or line.lower() == 'q':
                             print("Canceled.")
@@ -1296,6 +1393,8 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                             colors = [cmap(p) for p in positions]
                                         for c_idx, line_idx in enumerate(indices):
                                             ax.lines[line_idx].set_color(colors[c_idx])
+                                        # Update label colors to match new curve colors
+                                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                                         fig.canvas.draw()
                                         print(f"Applied '{palette_name}' to curves: " +
                                               ", ".join(str(i+1) for i in indices))
@@ -1521,7 +1620,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 # Preserve current axis titles (respect 't' menu toggles like bt/lt)
                 ax.set_xlim(xlim_current)
                 # Do not reset xlabel/ylabel here; rearrange should not change title visibility
-                update_labels(ax, y_data_list, label_text_objects, args.stack)
+                update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                 fig.canvas.draw()
             except Exception as e:
                 print(f"Error rearranging curves: {e}")
@@ -1569,7 +1668,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         y_data_list[i] = y_with_offset
                         orig_y[i] = y_sub_norm
                     ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
-                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                     # Extend CIF ticks after x-range change
                     try:
                         if hasattr(ax, '_cif_extend_func'):
@@ -1622,18 +1721,18 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 y_min -= eps
                                 y_max += eps
                         ax.set_ylim(y_min, y_max)
-                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                     fig.canvas.draw_idle()
                     print(f"Y range set to {ax.get_ylim()}")
                 except Exception as e:
                     print(f"Error setting Y-axis range: {e}")
         elif key == 'd':  # <-- DELTA / OFFSET HANDLER (now only reachable if not args.stack)
-            print("\nOffset adjustment menu:")
-            print("  1-{}: adjust individual curve offset".format(len(labels)))
-            print("  a: adjust total offset (baseline shift)")
-            print("  r: reset all offsets to 0")
-            print("  d: change delta spacing (original behavior)")
-            print("  q: back to main menu")
+            print("\n\033[1mOffset adjustment menu:\033[0m")
+            print(f"  {colorize_menu('1-{}: adjust individual curve offset'.format(len(labels)))}")
+            print(f"  {colorize_menu('a: adjust total offset (baseline shift)')}")
+            print(f"  {colorize_menu('r: reset all offsets to 0')}")
+            print(f"  {colorize_menu('d: change delta spacing (original behavior)')}")
+            print(f"  {colorize_menu('q: back to main menu')}")
             
             while True:
                 offset_cmd = input("Offset> ").strip().lower()
@@ -1654,7 +1753,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         
                         ax.relim()
                         ax.autoscale_view(scalex=False, scaley=True)
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         fig.canvas.draw()
                         print("All offsets reset to 0")
                     except Exception as e:
@@ -1685,7 +1784,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         
                         ax.relim()
                         ax.autoscale_view(scalex=False, scaley=True)
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         fig.canvas.draw()
                         print("Total offset of {:.4g} applied to all curves".format(total_offset))
                         
@@ -1726,7 +1825,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 ax.lines[i].set_data(x_data_list[i], y_with_offset)
                                 increment = (y_norm.max() - y_norm.min()) * delta if (args.autoscale and y_norm.size) else delta
                                 current_offset += increment
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         ax.relim(); ax.autoscale_view(scalex=False, scaley=True)
                         fig.canvas.draw()
                         print(f"Offsets updated with delta={delta}")
@@ -1764,7 +1863,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         
                         ax.relim()
                         ax.autoscale_view(scalex=False, scaley=True)
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         fig.canvas.draw()
                         print("Curve {} offset set to: {:.4g}".format(curve_num, individual_offset))
                         
@@ -1862,7 +1961,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         # Relimit and redraw
                         ax.relim()
                         ax.autoscale_view()
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                         fig.canvas.draw()
                         
                         direction = "clockwise" if rot_cmd == 'c' else "anti-clockwise"
@@ -1878,13 +1977,15 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
         elif key == 'l':
             try:
                 while True:
-                    print("Line submenu:")
-                    print("  c  : change curve line widths")
-                    print("  f  : change frame (axes spines) and tick widths")
-                    print("  ld : show line and dots (markers) for all curves")
-                    print("  d  : show only dots (no connecting line) for all curves")
-                    print("  q  : return")
-                    sub = input("Choose (c/f/ld/d/q): ").strip().lower()
+                    print("\033[1mLine submenu:\033[0m")
+                    print(f"  {colorize_menu('c  : change curve line widths')}")
+                    print(f"  {colorize_menu('f  : change frame (axes spines) and tick widths')}")
+                    print(f"  {colorize_menu('g  : toggle grid lines')}")
+                    print(f"  {colorize_menu('l  : show only lines (no markers) for all curves')}")
+                    print(f"  {colorize_menu('ld : show line and dots (markers) for all curves')}")
+                    print(f"  {colorize_menu('d  : show only dots (no connecting line) for all curves')}")
+                    print(f"  {colorize_menu('q  : return')}")
+                    sub = input(colorize_prompt("Choose (c/f/g/l/ld/d/q): ")).strip().lower()
                     if sub == 'q':
                         break
                     if sub == '':
@@ -1943,6 +2044,43 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                                 print(f"Set frame width={frame_w}, major tick width={tick_major}, minor tick width={tick_minor}")
                             except ValueError:
                                 print("Invalid numeric value(s).")
+                    elif sub == 'g':
+                        push_state("grid")
+                        # Toggle grid state - check if any gridlines are visible
+                        current_grid = False
+                        try:
+                            # Check if grid is currently on by looking at gridline visibility
+                            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                                if line.get_visible():
+                                    current_grid = True
+                                    break
+                        except Exception:
+                            current_grid = ax.xaxis._gridOnMajor if hasattr(ax.xaxis, '_gridOnMajor') else False
+                        
+                        new_grid_state = not current_grid
+                        if new_grid_state:
+                            # Enable grid with light styling
+                            ax.grid(True, color='0.85', linestyle='-', linewidth=0.5, alpha=0.7)
+                        else:
+                            # Disable grid (no style parameters when disabling)
+                            ax.grid(False)
+                        fig.canvas.draw()
+                        print(f"Grid {'enabled' if new_grid_state else 'disabled'}.")
+                    elif sub == 'l':
+                        # Line-only mode: set linestyle to solid and remove markers
+                        push_state("line-only")
+                        for ln in ax.lines:
+                            # Check if already in line-only mode (has line style and no marker)
+                            current_ls = ln.get_linestyle()
+                            current_marker = ln.get_marker()
+                            # If already line-only (has line, no marker), skip
+                            if current_ls not in ['None', '', ' ', 'none'] and current_marker in ['None', '', ' ', 'none', None]:
+                                continue
+                            # Otherwise, set to line-only
+                            ln.set_linestyle('-')
+                            ln.set_marker('None')
+                        fig.canvas.draw()
+                        print("Applied line-only style to all curves.")
                     elif sub == 'ld':
                         push_state("line+dots")
                         try:
@@ -1991,7 +2129,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print(f"Error setting widths: {e}")
         elif key == 'f':
             while True:
-                subkey = input("Font submenu (s=size, f=family, q=return): ").strip().lower()
+                subkey = input(colorize_prompt("Font submenu (s=size, f=family, q=return): ")).strip().lower()
                 if subkey == 'q':
                     break
                 if subkey == '':
@@ -2045,7 +2183,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
         elif key == 'g':
             try:
                 while True:
-                    choice = input("Resize submenu: (p=plot frame, c=canvas, q=cancel): ").strip().lower()
+                    choice = input(colorize_prompt("Resize submenu: (p=plot frame, c=canvas, q=cancel): ")).strip().lower()
                     if not choice:
                         continue
                     if choice == 'q':
@@ -2053,7 +2191,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                     if choice == 'p':
                         push_state("resize-frame")
                         resize_plot_frame()
-                        update_labels(ax, y_data_list, label_text_objects, args.stack)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                     elif choice == 'c':
                         push_state("resize-canvas")
                         resize_canvas()
@@ -2062,44 +2200,71 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error in resize submenu: {e}")
         elif key == 'h':
-            # Toggle curve name labels visibility
+            # Legend submenu
             try:
-                push_state("curve-names")
-                # Check current visibility from first label
-                current_visible = True
-                if label_text_objects and len(label_text_objects) > 0:
-                    try:
-                        current_visible = label_text_objects[0].get_visible()
-                    except Exception:
+                while True:
+                    print("\nLegend submenu:")
+                    print("  v: show/hide curve names")
+                    current_pos = "bottom-right" if getattr(fig, '_stack_label_at_bottom', False) else "top-right"
+                    print(f"  s: legend position (current: {current_pos})")
+                    print("  q: back to main menu")
+                    sub_key = input("Choose: ").strip().lower()
+                    
+                    if sub_key == 'q':
+                        break
+                    elif sub_key == 'v':
+                        push_state("curve-names")
+                        # Check current visibility from first label
                         current_visible = True
-                
-                # Toggle all labels
-                new_visible = not current_visible
-                for txt in label_text_objects:
-                    try:
-                        txt.set_visible(new_visible)
-                    except Exception:
-                        pass
-                
-                # Store state on figure for persistence
-                fig._curve_names_visible = new_visible
-                
-                status = "shown" if new_visible else "hidden"
-                print(f"Curve names {status}")
-                try:
-                    fig.canvas.draw()
-                except Exception:
-                    fig.canvas.draw_idle()
+                        if label_text_objects and len(label_text_objects) > 0:
+                            try:
+                                current_visible = label_text_objects[0].get_visible()
+                            except Exception:
+                                current_visible = True
+                        
+                        # Toggle all labels
+                        new_visible = not current_visible
+                        for txt in label_text_objects:
+                            try:
+                                txt.set_visible(new_visible)
+                            except Exception:
+                                pass
+                        
+                        # Store state on figure for persistence
+                        fig._curve_names_visible = new_visible
+                        
+                        status = "shown" if new_visible else "hidden"
+                        print(f"Curve names {status}")
+                        stack_label_bottom = getattr(fig, '_stack_label_at_bottom', False)
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, stack_label_bottom)
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                    elif sub_key == 's':
+                        push_state("label-position")
+                        # Toggle label position between top-right and bottom-right
+                        current_bottom = getattr(fig, '_stack_label_at_bottom', False)
+                        fig._stack_label_at_bottom = not current_bottom
+                        new_pos = "bottom-right" if fig._stack_label_at_bottom else "top-right"
+                        update_labels(ax, y_data_list, label_text_objects, args.stack, fig._stack_label_at_bottom)
+                        print(f"Legend position changed to {new_pos}.")
+                        try:
+                            fig.canvas.draw()
+                        except Exception:
+                            fig.canvas.draw_idle()
+                    else:
+                        print("Unknown option.")
             except Exception as e:
-                print(f"Error toggling curve names: {e}")
+                print(f"Error in legend submenu: {e}")
         elif key == 't':
             try:
                 while True:
-                    print("Toggle help:")
-                    print("  wasd choose side: w=top, a=left, s=bottom, d=right")
-                    print("  1..5 choose what: 1=spine line, 2=major ticks, 3=minor ticks, 4=labels, 5=axis title")
-                    print("  Combine letter+number to toggle, e.g. 's2 w5 a4' (case-insensitive)")
-                    print("  i = invert tick direction, l = change tick length, list = show state, q = return")
+                    print("\033[1mToggle help:\033[0m")
+                    print(colorize_inline_commands("  wasd choose side: w=top, a=left, s=bottom, d=right"))
+                    print(colorize_inline_commands("  1..5 choose what: 1=spine line, 2=major ticks, 3=minor ticks, 4=labels, 5=axis title"))
+                    print(colorize_inline_commands("  Combine letter+number to toggle, e.g. 's2 w5 a4' (case-insensitive)"))
+                    print(colorize_inline_commands("  i = invert tick direction, l = change tick length, list = show state, q = return"))
                     cmd = input("Enter code(s): ").strip().lower()
                     if not cmd:
                         continue
@@ -2374,7 +2539,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         print(f"Unknown code: {p}")
                     # After tick toggles, update visibility and reposition ALL axis labels for independence
                     update_tick_visibility()
-                    update_labels(ax, y_data_list, label_text_objects, args.stack)
+                    update_labels(ax, y_data_list, label_text_objects, args.stack, getattr(fig, '_stack_label_at_bottom', False))
                     sync_fonts()
                     # Only reposition sides that were actually affected by the toggles
                     if need_pos['bottom']:
@@ -2391,19 +2556,18 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print(f"Error in tick visibility menu: {e}")
         elif key == 'p':
             try:
+                from .utils import list_files_in_subdirectory
                 style_menu_active = True
                 while style_menu_active:
                     print_style_info()
-                    # List available style files (.bps, .bpsg, .bpcfg) to speed up export/import workflows
-                    try:
-                        _bpcfg_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
-                    except Exception:
-                        _bpcfg_files = []
+                    # List available style files (.bps, .bpsg, .bpcfg) in Styles/ subdirectory
+                    style_file_list = list_files_in_subdirectory(('.bps', '.bpsg', '.bpcfg'), 'style')
+                    _bpcfg_files = [f[0] for f in style_file_list]
                     if _bpcfg_files:
-                        print("Existing style files (.bps/.bpsg):")
+                        print("Existing style files in Styles/ (.bps/.bpsg):")
                         for _i, _f in enumerate(_bpcfg_files, 1):
                             print(f"  {_i}: {_f}")
-                    sub = input("Style submenu: (e=export, q=return, r=refresh): ").strip().lower()
+                    sub = input(colorize_prompt("Style submenu: (e=export, q=return, r=refresh): ")).strip().lower()
                     if sub == 'q':
                         break
                     if sub == 'r' or sub == '':
@@ -2419,12 +2583,11 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 print(f"Error in style submenu: {e}")
         elif key == 'i':
             try:
-                try:
-                    _style_files = sorted([f for f in os.listdir(os.getcwd()) if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
-                except Exception:
-                    _style_files = []
+                from .utils import list_files_in_subdirectory
+                style_file_list = list_files_in_subdirectory(('.bps', '.bpsg', '.bpcfg'), 'style')
+                _style_files = [f[0] for f in style_file_list]
                 if _style_files:
-                    print("Available style files:")
+                    print("Available style files in Styles/:")
                     for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
                 inp = input("Enter number or filename (.bps/.bpsg; q=cancel): ").strip()
@@ -2434,40 +2597,51 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 if inp.isdigit() and _style_files:
                     _idx = int(inp)
                     if 1 <= _idx <= len(_style_files):
-                        fname = os.path.join(os.getcwd(), _style_files[_idx-1])
+                        fname = style_file_list[_idx-1][1]  # Full path from list
                     else:
                         print("Invalid number.")
                         continue
                 else:
                     fname = inp
-                    if not os.path.isfile(fname):
-                        # Try adding extensions
+                    # If it's not an absolute path, check in Styles/ subdirectory
+                    if not os.path.isabs(fname) and not os.path.isfile(fname):
+                        # Try in Styles/ subdirectory with different extensions
                         found = False
+                        styles_dir = os.path.join(os.getcwd(), 'Styles')
                         for ext in ['.bps', '.bpsg', '.bpcfg']:
                             alt = fname if fname.lower().endswith(ext) else fname + ext
-                            if os.path.isfile(alt):
-                                fname = alt
+                            styles_path = os.path.join(styles_dir, alt)
+                            if os.path.isfile(styles_path):
+                                fname = styles_path
                                 found = True
                                 break
                         if not found:
-                            print("File not found.")
-                            continue
+                            # Try current directory as fallback
+                            for ext in ['.bps', '.bpsg', '.bpcfg']:
+                                alt = fname if fname.lower().endswith(ext) else fname + ext
+                                if os.path.isfile(alt):
+                                    fname = alt
+                                    found = True
+                                    break
+                            if not found:
+                                print("File not found in Styles/ or current directory.")
+                                continue
+                    elif not os.path.isfile(fname):
+                        print("File not found.")
+                        continue
                 push_state("style-import")
                 apply_style_config(fname)
             except Exception as e:
                 print(f"Error importing style: {e}")
         elif key == 'e':
             try:
-                # List existing figure files
-                folder = os.getcwd()
+                from .utils import list_files_in_subdirectory, get_organized_path
+                # List existing figure files in Figures/ subdirectory
                 fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
-                files = []
-                try:
-                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
-                except Exception:
-                    files = []
+                file_list = list_files_in_subdirectory(fig_extensions, 'figure')
+                files = [f[0] for f in file_list]
                 if files:
-                    print("Existing figure files:")
+                    print("Existing figure files in Figures/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 
@@ -2486,7 +2660,7 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                         if yn != 'y':
                             print("Canceled.")
                             continue
-                        filename = name
+                        export_target = file_list[idx-1][1]  # Full path from list
                         already_confirmed = True
                     else:
                         print("Invalid number.")
@@ -2494,12 +2668,17 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
                 else:
                     if not os.path.splitext(filename)[1]:
                         filename += ".svg"
+                    # Use organized path unless it's an absolute path
+                    if os.path.isabs(filename):
+                        export_target = filename
+                    else:
+                        export_target = get_organized_path(filename, 'figure')
                 
                 # Confirm overwrite if file exists (and not already confirmed by number selection)
-                if already_confirmed:
-                    export_target = filename
-                else:
-                    export_target = _confirm_overwrite(filename)
+                if not already_confirmed:
+                    if os.path.exists(export_target):
+                        export_target = _confirm_overwrite(export_target)
+                
                 if not export_target:
                     print("Export canceled.")
                 else:
@@ -2546,101 +2725,101 @@ def interactive_menu(fig, ax, y_data_list, x_data_list, labels, orig_y,
             except Exception as e:
                 print(f"Error saving figure: {e}")
         elif key == 'v':
-            try:
-                rng_in = input("Peak X range (min max, 'current' for axes limits, q=cancel): ").strip().lower()
-                if not rng_in or rng_in == 'q':
-                    print("Canceled.")
-                    continue
-                if rng_in == 'current':
-                    x_min, x_max = ax.get_xlim()
-                else:
-                    parts = rng_in.split()
-                    if len(parts) != 2:
-                        print("Need exactly two numbers or 'current'.")
-                        continue
-                    x_min, x_max = map(float, parts)
-                    if x_min > x_max:
-                        x_min, x_max = x_max, x_min
-
-                frac_in = input("Min relative peak height (0–1, default 0.1): ").strip()
-                min_frac = float(frac_in) if frac_in else 0.1
-                if min_frac < 0: min_frac = 0.0
-                if min_frac > 1: min_frac = 1.0
-
-                swin = input("Smoothing window (odd int >=3, blank=none): ").strip()
-                if swin:
-                    try:
-                        win = int(swin)
-                        if win < 3 or win % 2 == 0:
-                            print("Invalid window; disabling smoothing.")
-                            win = 0
-                        else:
-                            print(f"Using moving-average smoothing (window={win}).")
-                    except ValueError:
-                        print("Bad window value; no smoothing.")
-                        win = 0
-                else:
-                    win = 0
-
-                print("\n--- Peak Report ---")
-                print(f"X range used: {x_min} .. {x_max}  (relative height threshold={min_frac})")
-                for i, (x_arr, y_off) in enumerate(zip(x_data_list, y_data_list)):
-                    # Recover original curve (remove vertical offset)
-                    if i < len(offsets_list):
-                        y_arr = y_off - offsets_list[i]
+            while True:
+                try:
+                    rng_in = input("Peak X range (min max, 'current' for axes limits, q=back): ").strip().lower()
+                    if not rng_in or rng_in == 'q':
+                        break
+                    if rng_in == 'current':
+                        x_min, x_max = ax.get_xlim()
                     else:
-                        y_arr = y_off.copy()
-
-                    # Restrict to selected window
-                    mask = (x_arr >= x_min) & (x_arr <= x_max)
-                    x_sel = x_arr[mask]
-                    y_sel = y_arr[mask]
-
-                    label = labels[i] if i < len(labels) else f"Curve {i+1}"
-                    print(f"\nCurve {i+1}: {label}")
-                    if x_sel.size < 3:
-                        print("  (Insufficient points)")
-                        continue
-
-                    # Optional smoothing
-                    if win >= 3 and x_sel.size >= win:
-                        kernel = np.ones(win, dtype=float) / win
-                        y_sm = np.convolve(y_sel, kernel, mode='same')
-                    else:
-                        y_sm = y_sel
-
-                    # Determine threshold
-                    ymax = float(np.max(y_sm))
-                    if ymax <= 0:
-                        print("  (Non-positive data)")
-                        continue
-                    min_height = ymax * min_frac
-
-                    # Simple local maxima detection
-                    y_prev = y_sm[:-2]
-                    y_mid  = y_sm[1:-1]
-                    y_next = y_sm[2:]
-                    core_mask = (y_mid > y_prev) & (y_mid >= y_next) & (y_mid >= min_height)
-                    if not np.any(core_mask):
-                        print("  (No peaks)")
-                        continue
-                    peak_indices = np.where(core_mask)[0] + 1  # shift because we looked at 1..n-2
-
-                    # Optional refine: keep only distinct peaks (skip adjacent equal plateau)
-                    peaks = []
-                    last_idx = -10
-                    for pi in peak_indices:
-                        if pi - last_idx == 1 and y_sm[pi] == y_sm[last_idx]:
-                            # same plateau, keep first
+                        parts = rng_in.split()
+                        if len(parts) != 2:
+                            print("Need exactly two numbers or 'current'.")
                             continue
-                        peaks.append(pi)
-                        last_idx = pi
+                        x_min, x_max = map(float, parts)
+                        if x_min > x_max:
+                            x_min, x_max = x_max, x_min
 
-                    print("  Peaks (x, y):")
-                    for pi in peaks:
-                        print(f"    x={x_sel[pi]:.6g}, y={y_sel[pi]:.6g}")
-                print("\n--- End Peak Report ---\n")
-            except Exception as e:
-                print(f"Error finding peaks: {e}")
+                    frac_in = input("Min relative peak height (0–1, default 0.1): ").strip()
+                    min_frac = float(frac_in) if frac_in else 0.1
+                    if min_frac < 0: min_frac = 0.0
+                    if min_frac > 1: min_frac = 1.0
+
+                    swin = input("Smoothing window (odd int >=3, blank=none): ").strip()
+                    if swin:
+                        try:
+                            win = int(swin)
+                            if win < 3 or win % 2 == 0:
+                                print("Invalid window; disabling smoothing.")
+                                win = 0
+                            else:
+                                print(f"Using moving-average smoothing (window={win}).")
+                        except ValueError:
+                            print("Bad window value; no smoothing.")
+                            win = 0
+                    else:
+                        win = 0
+
+                    print("\n--- Peak Report ---")
+                    print(f"X range used: {x_min} .. {x_max}  (relative height threshold={min_frac})")
+                    for i, (x_arr, y_off) in enumerate(zip(x_data_list, y_data_list)):
+                        # Recover original curve (remove vertical offset)
+                        if i < len(offsets_list):
+                            y_arr = y_off - offsets_list[i]
+                        else:
+                            y_arr = y_off.copy()
+
+                        # Restrict to selected window
+                        mask = (x_arr >= x_min) & (x_arr <= x_max)
+                        x_sel = x_arr[mask]
+                        y_sel = y_arr[mask]
+
+                        label = labels[i] if i < len(labels) else f"Curve {i+1}"
+                        print(f"\nCurve {i+1}: {label}")
+                        if x_sel.size < 3:
+                            print("  (Insufficient points)")
+                            continue
+
+                        # Optional smoothing
+                        if win >= 3 and x_sel.size >= win:
+                            kernel = np.ones(win, dtype=float) / win
+                            y_sm = np.convolve(y_sel, kernel, mode='same')
+                        else:
+                            y_sm = y_sel
+
+                        # Determine threshold
+                        ymax = float(np.max(y_sm))
+                        if ymax <= 0:
+                            print("  (Non-positive data)")
+                            continue
+                        min_height = ymax * min_frac
+
+                        # Simple local maxima detection
+                        y_prev = y_sm[:-2]
+                        y_mid  = y_sm[1:-1]
+                        y_next = y_sm[2:]
+                        core_mask = (y_mid > y_prev) & (y_mid >= y_next) & (y_mid >= min_height)
+                        if not np.any(core_mask):
+                            print("  (No peaks)")
+                            continue
+                        peak_indices = np.where(core_mask)[0] + 1  # shift because we looked at 1..n-2
+
+                        # Optional refine: keep only distinct peaks (skip adjacent equal plateau)
+                        peaks = []
+                        last_idx = -10
+                        for pi in peak_indices:
+                            if pi - last_idx == 1 and y_sm[pi] == y_sm[last_idx]:
+                                # same plateau, keep first
+                                continue
+                            peaks.append(pi)
+                            last_idx = pi
+
+                        print("  Peaks (x, y):")
+                        for pi in peaks:
+                            print(f"    x={x_sel[pi]:.6g}, y={y_sel[pi]:.6g}")
+                    print("\n--- End Peak Report ---\n")
+                except Exception as e:
+                    print(f"Error finding peaks: {e}")
 
 __all__ = ["interactive_menu"]

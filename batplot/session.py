@@ -229,6 +229,10 @@ def dump_session(
         }
         # Save curve names visibility
         sess['curve_names_visible'] = bool(getattr(fig, '_curve_names_visible', True))
+        # Save stack label position preference
+        sess['stack_label_at_bottom'] = bool(getattr(fig, '_stack_label_at_bottom', False))
+        # Save grid state
+        sess['grid'] = ax.xaxis._gridOnMajor if hasattr(ax.xaxis, '_gridOnMajor') else False
         if skip_confirm:
             target = filename
         else:

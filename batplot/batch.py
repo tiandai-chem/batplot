@@ -172,8 +172,8 @@ def batch_process(directory: str, args):
     # Extensions to exclude from processing
     excluded_ext = {'.cif', '.pkl', '.py', '.md', '.json', '.yml', '.yaml', '.sh', '.bat', '.mpt'}
     
-    out_dir = os.path.join(directory, "batplot_svg")
-    os.makedirs(out_dir, exist_ok=True)
+    from .utils import ensure_subdirectory
+    out_dir = ensure_subdirectory('Figures', directory)
     
     # Collect all files, including those with unknown extensions
     files = []
@@ -212,7 +212,7 @@ def batch_process(directory: str, args):
     if unknown_ext_files:
         print(f"Note: Processing {len(unknown_ext_files)} file(s) with unknown extension(s) using --xaxis {args.xaxis}")
     
-    print(f"Found {len(files)} files. Exporting SVG plots to {out_dir}")
+    print(f"Found {len(files)} files. Exporting SVG plots to Figures/")
     for fname in files:
         fpath = os.path.join(directory, fname)
         ext = os.path.splitext(fname)[1].lower()
@@ -244,8 +244,28 @@ def batch_process(directory: str, args):
                 data = robust_loadtxt_skipheader(fpath)
                 if data.ndim == 1: data = data.reshape(1, -1)
                 if data.shape[1] < 2: raise ValueError("Invalid 2-column data")
-                x, y = data[:,0], data[:,1]
-                e = data[:,2] if data.shape[1] >= 3 else None
+                # Handle --readcol flag to select specific columns
+                # Check for extension-specific readcol first, then fall back to general --readcol
+                readcol_spec = None
+                if hasattr(args, 'readcol_by_ext') and ext in args.readcol_by_ext:
+                    readcol_spec = args.readcol_by_ext[ext]
+                elif args.readcol:
+                    readcol_spec = args.readcol
+                
+                if readcol_spec:
+                    x_col, y_col = readcol_spec
+                    # Convert from 1-indexed to 0-indexed
+                    x_col_idx = x_col - 1
+                    y_col_idx = y_col - 1
+                    if x_col_idx < 0 or x_col_idx >= data.shape[1]:
+                        raise ValueError(f"X column {x_col} out of range (has {data.shape[1]} columns)")
+                    if y_col_idx < 0 or y_col_idx >= data.shape[1]:
+                        raise ValueError(f"Y column {y_col} out of range (has {data.shape[1]} columns)")
+                    x, y = data[:, x_col_idx], data[:, y_col_idx]
+                    e = None  # Error bars not supported with custom column selection
+                else:
+                    x, y = data[:,0], data[:,1]
+                    e = data[:,2] if data.shape[1] >= 3 else None
                 if ext == '.qye':
                     axis_mode = 'Q'
                 elif ext == '.gr':
@@ -265,7 +285,7 @@ def batch_process(directory: str, args):
                         args._batch_warned_extensions.add(ext)
                         print(f"  Note: Reading '{ext}' files as 2-column (x, y) data with x-axis = {args.xaxis}")
                 else:
-                    raise ValueError(f"Cannot determine X-axis type for file {fname} (need .qye/.gr/.nor/.chik/.chir or --xaxis).")
+                    raise ValueError(f"Unknown file type: {fname}. Use --xaxis [Q|2theta|r|k|energy|rft] or batplot -h for help.")
 
             # Convert to Q if needed
             if axis_mode == 'Q' and ext not in ('.qye', '.gr', '.nor'):
@@ -312,7 +332,9 @@ def batch_process(directory: str, args):
             ax_b.set_ylabel("Normalized intensity (a.u.)" if getattr(args, 'norm', False) else "Intensity")
             ax_b.set_title(fname)
             fig_b.subplots_adjust(left=0.18, right=0.97, bottom=0.16, top=0.90)
-            out_name = os.path.splitext(fname)[0] + ".svg"
+            # Get output format from args, default to svg
+            output_format = getattr(args, 'format', 'svg')
+            out_name = os.path.splitext(fname)[0] + f".{output_format}"
             out_path = os.path.join(out_dir, out_name)
             target = _confirm_overwrite(out_path)
             if not target:
@@ -421,18 +443,18 @@ def batch_process_ec(directory: str, args):
         print("EC batch mode requires one of: --gc, --cv, --dqdv, or --cpc")
         return
     
-    out_dir = os.path.join(directory, "batplot_svg")
-    os.makedirs(out_dir, exist_ok=True)
+    from .utils import ensure_subdirectory
+    out_dir = ensure_subdirectory('Figures', directory)
     
     files = [f for f in sorted(os.listdir(directory))
              if os.path.splitext(f)[1].lower() in supported_ext 
              and os.path.isfile(os.path.join(directory, f))]
     
     if not files:
-        print(f"No supported {mode.upper()} files found ({', '.join(supported_ext)}).")
+        print(f"No {mode.upper()} files found.")
         return
     
-    print(f"Found {len(files)} {mode.upper()} files. Exporting SVG plots to {out_dir}")
+    print(f"Found {len(files)} {mode.upper()} files. Exporting SVG plots to Figures/")
     
     # Enhanced color palette using matplotlib colormaps
     # Start with base colors, then generate more using colormap if needed
@@ -725,7 +747,9 @@ def batch_process_ec(directory: str, args):
             
             # Adjust layout and save
             fig_b.subplots_adjust(left=0.18, right=0.97, bottom=0.16, top=0.90)
-            out_name = os.path.splitext(fname)[0] + f"_{mode}.svg"
+            # Get output format from args, default to svg
+            output_format = getattr(args, 'format', 'svg')
+            out_name = os.path.splitext(fname)[0] + f"_{mode}.{output_format}"
             out_path = os.path.join(out_dir, out_name)
             
             target = _confirm_overwrite(out_path)

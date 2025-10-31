@@ -68,7 +68,7 @@ def _infer_axis_mode(args, any_qye: bool, has_unknown_ext: bool):
     print("[operando] No --xaxis or --wl supplied and no .qye files; assuming 2theta (degrees). Use --xaxis 2theta to silence this message.")
     return "2theta"
 
-def _load_curve(path: Path):
+def _load_curve(path: Path, readcol=None):
     data = robust_loadtxt_skipheader(str(path))
     if data.ndim == 1:
         if data.size < 2:
@@ -76,8 +76,21 @@ def _load_curve(path: Path):
         x = data[0::2]
         y = data[1::2]
     else:
-        x = data[:,0]
-        y = data[:,1]
+        # Handle --readcol flag to select specific columns
+        if readcol:
+            x_col, y_col = readcol
+            # Convert from 1-indexed to 0-indexed
+            x_col_idx = x_col - 1
+            y_col_idx = y_col - 1
+            if x_col_idx < 0 or x_col_idx >= data.shape[1]:
+                raise ValueError(f"X column {x_col} out of range in {path} (has {data.shape[1]} columns)")
+            if y_col_idx < 0 or y_col_idx >= data.shape[1]:
+                raise ValueError(f"Y column {y_col} out of range in {path} (has {data.shape[1]} columns)")
+            x = data[:, x_col_idx]
+            y = data[:, y_col_idx]
+        else:
+            x = data[:,0]
+            y = data[:,1]
     return np.asarray(x, float), np.asarray(y, float)
 
 def _maybe_convert_to_Q(x, wl):
@@ -122,9 +135,10 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
 
     x_arrays = []
     y_arrays = []
+    readcol = getattr(args, 'readcol', None)
     for f in files:
         try:
-            x, y = _load_curve(f)
+            x, y = _load_curve(f, readcol=readcol)
         except Exception as e:
             print(f"Skip {f.name}: {e}")
             continue
@@ -197,15 +211,39 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
     if has_ec:
         try:
             ec_path = mpt_files[0]
-            # Read time series from .mpt
-            time_s, voltage_v, current_mA = read_mpt_file(str(ec_path), mode='time')
-            time_h = np.asarray(time_s, float) / 3600.0
-            voltage_v = np.asarray(voltage_v, float)
+            # Read time series from .mpt (now returns labels too)
+            result = read_mpt_file(str(ec_path), mode='time')
+            
+            # Check if we got labels (5 elements) or old format (3 elements)
+            if len(result) == 5:
+                x_data, y_data, current_mA, x_label, y_label = result
+                # For EC-Lab files: x_label='Time (h)', y_label='Voltage (V)'
+                # EC-Lab returns time in seconds, needs conversion to hours
+                # operando plots with voltage on X-axis and time on Y-axis
+                if x_label == 'Time (h)' and y_label == 'Voltage (V)':
+                    # EC-Lab file: convert time to hours and swap axes
+                    time_h = np.asarray(x_data, float) / 3600.0
+                    voltage_v = np.asarray(y_data, float)
+                    x_data = voltage_v
+                    y_data = time_h
+                    x_label = 'Voltage (V)'
+                    y_label = 'Time (h)'
+                else:
+                    # Simple file: use raw data as-is, keep original labels
+                    x_data = np.asarray(x_data, float)
+                    y_data = np.asarray(y_data, float)
+            else:
+                # Old format compatibility (shouldn't happen anymore)
+                x_data, y_data, current_mA = result
+                x_data = np.asarray(y_data, float)
+                y_data = np.asarray(x_data, float) / 3600.0
+                x_label, y_label = 'Voltage (V)', 'Time (h)'
+            
             # Add the EC axes on the right
             ec_ax = fig.add_subplot(gs[0, 1])
-            ln_ec, = ec_ax.plot(voltage_v, time_h, lw=1.0, color='tab:blue')
-            ec_ax.set_xlabel('Voltage (V)')
-            ec_ax.set_ylabel('Time (h)')
+            ln_ec, = ec_ax.plot(x_data, y_data, lw=1.0, color='tab:blue')
+            ec_ax.set_xlabel(x_label)
+            ec_ax.set_ylabel(y_label)
             # Match interactive defaults: put EC Y axis on the right
             try:
                 ec_ax.yaxis.tick_right()
@@ -220,9 +258,9 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
             try:
                 # Remove vertical margins and clamp to exact data bounds
                 ec_ax.margins(y=0)
-                tmin = float(np.nanmin(time_h)) if getattr(np, 'nanmin', None) else float(np.min(time_h))
-                tmax = float(np.nanmax(time_h)) if getattr(np, 'nanmax', None) else float(np.max(time_h))
-                ec_ax.set_ylim(tmin, tmax)
+                ymin = float(np.nanmin(y_data)) if getattr(np, 'nanmin', None) else float(np.min(y_data))
+                ymax = float(np.nanmax(y_data)) if getattr(np, 'nanmax', None) else float(np.max(y_data))
+                ec_ax.set_ylim(ymin, ymax)
             except Exception:
                 pass
             # Add a small right margin on EC X to give space for right-side ticks/labels
@@ -236,8 +274,8 @@ def plot_operando_folder(folder: str, args) -> Tuple[plt.Figure, plt.Axes, Dict[
                 pass
             # Stash EC data and line for interactive transforms
             try:
-                ec_ax._ec_time_h = time_h
-                ec_ax._ec_voltage_v = voltage_v
+                ec_ax._ec_time_h = y_data  # Store y_data (could be time or any y value)
+                ec_ax._ec_voltage_v = x_data  # Store x_data (could be voltage or any x value)
                 ec_ax._ec_current_mA = current_mA
                 ec_ax._ec_line = ln_ec
                 ec_ax._ec_y_mode = 'time'  # or 'ions'

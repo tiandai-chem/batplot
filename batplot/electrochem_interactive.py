@@ -25,6 +25,52 @@ from .plotting import update_labels as _update_labels
 from .utils import _confirm_overwrite
 
 
+def _colorize_menu(text):
+    """Colorize menu items: command in cyan, colon in white, description in default."""
+    if ':' not in text:
+        return text
+    parts = text.split(':', 1)
+    cmd = parts[0].strip()
+    desc = parts[1].strip() if len(parts) > 1 else ''
+    return f"\033[96m{cmd}\033[0m: {desc}"  # Cyan for command, default for description
+
+
+def _colorize_prompt(text):
+    """Colorize commands within input prompts. Handles formats like (s=size, f=family, q=return) or (y/n)."""
+    import re
+    pattern = r'\(([a-z]+=[^,)]+(?:,\s*[a-z]+=[^,)]+)*|[a-z]+(?:/[a-z]+)+)\)'
+    
+    def colorize_match(match):
+        content = match.group(1)
+        if '/' in content:
+            parts = content.split('/')
+            colored_parts = [f"\033[96m{p.strip()}\033[0m" for p in parts]
+            return f"({'/'.join(colored_parts)})"
+        else:
+            parts = content.split(',')
+            colored_parts = []
+            for part in parts:
+                part = part.strip()
+                if '=' in part:
+                    cmd, desc = part.split('=', 1)
+                    colored_parts.append(f"\033[96m{cmd.strip()}\033[0m={desc.strip()}")
+                else:
+                    colored_parts.append(part)
+            return f"({', '.join(colored_parts)})"
+    
+    return re.sub(pattern, colorize_match, text)
+
+
+def _colorize_inline_commands(text):
+    """Colorize inline command examples in help text. Colors quoted examples and specific known commands."""
+    import re
+    # Color quoted command examples (like 's2 w5 a4', 'w2 w5')
+    text = re.sub(r"'([a-z0-9\s_-]+)'", lambda m: f"'\033[96m{m.group(1)}\033[0m'", text)
+    # Color specific known commands: q, i, l, list, help, all
+    text = re.sub(r'\b(q|i|l|list|help|all)\b(?=\s*[=,]|\s*$)', lambda m: f"\033[96m{m.group(1)}\033[0m", text)
+    return text
+
+
 def _print_menu(n_cycles: int, is_dqdv: bool = False):
     # Three-column menu similar to operando: Styles | Geometries | Options
     # Use dynamic column widths for clean alignment.
@@ -60,13 +106,17 @@ def _print_menu(n_cycles: int, is_dqdv: bool = False):
     w2 = max(len("(Geometries)"), *(len(s) for s in col2), 12)
     w3 = max(len("(Options)"), *(len(s) for s in col3), 12)
     rows = max(len(col1), len(col2), len(col3))
-    print("\nInteractive menu:")
-    print(f"  {'(Styles)':<{w1}} {'(Geometries)':<{w2}} {'(Options)':<{w3}}")
+    print("\n\033[1mInteractive menu:\033[0m")  # Bold title
+    print(f"  \033[93m{'(Styles)':<{w1}}\033[0m \033[93m{'(Geometries)':<{w2}}\033[0m \033[93m{'(Options)':<{w3}}\033[0m")  # Yellow headers
     for i in range(rows):
-        p1 = col1[i] if i < len(col1) else ""
-        p2 = col2[i] if i < len(col2) else ""
-        p3 = col3[i] if i < len(col3) else ""
-        print(f"  {p1:<{w1}} {p2:<{w2}} {p3:<{w3}}")
+        p1 = _colorize_menu(col1[i]) if i < len(col1) else ""
+        p2 = _colorize_menu(col2[i]) if i < len(col2) else ""
+        p3 = _colorize_menu(col3[i]) if i < len(col3) else ""
+        # Add padding to account for ANSI escape codes
+        pad1 = w1 + (9 if i < len(col1) else 0)
+        pad2 = w2 + (9 if i < len(col2) else 0)
+        pad3 = w3 + (9 if i < len(col3) else 0)
+        print(f"  {p1:<{pad1}} {p2:<{pad2}} {p3:<{pad3}}")
 
 
 def _iter_cycle_lines(cycle_lines: Dict[int, Dict[str, Optional[object]]]):
@@ -182,6 +232,19 @@ def _parse_cycle_tokens(tokens: List[str]) -> Tuple[str, List[int], dict, Option
     if len(tokens) == 1 and tokens[0].lower() == 'all':
         return ("numbers", [], {}, None, True)
     if len(tokens) == 2 and tokens[0].lower() == 'all':
+        # Map numeric selections to palette names
+        palette_map = {
+            '1': 'tab10',
+            '2': 'Set2',
+            '3': 'Dark2',
+            '4': 'viridis',
+            '5': 'plasma'
+        }
+        
+        # Check if second token is a number from 1-5
+        if tokens[1] in palette_map:
+            return ("palette", [], {}, palette_map[tokens[1]], True)
+        
         # Treat as palette mode across all
         try:
             plt.get_cmap(tokens[1])
@@ -207,8 +270,31 @@ def _parse_cycle_tokens(tokens: List[str]) -> Tuple[str, List[int], dict, Option
                 cycles.append(cyc)
         return ("map", cycles, mapping, None, False)
 
-    # If last token is a valid colormap -> palette mode
+    # If last token is a valid colormap or number (1-5) -> palette mode
     last = tokens[-1]
+    
+    # Map numeric selections to palette names
+    palette_map = {
+        '1': 'tab10',
+        '2': 'Set2',
+        '3': 'Dark2',
+        '4': 'viridis',
+        '5': 'plasma'
+    }
+    
+    # Check if last token is a number from 1-5
+    if last in palette_map:
+        palette = palette_map[last]
+        num_tokens = tokens[:-1]
+        cycles = []
+        for t in num_tokens:
+            try:
+                cycles.append(int(t))
+            except ValueError:
+                pass
+        return ("palette", cycles, {}, palette, False)
+    
+    # Check if last token is a valid colormap name
     try:
         # This will raise for unknown maps
         plt.get_cmap(last)
@@ -827,7 +913,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             continue
         if key == 'q':
             try:
-                confirm = input("Quit EC interactive? Remember to save (e=export, s=save). Quit now? (y/n): ").strip().lower()
+                confirm = input(_colorize_prompt("Quit EC interactive? Remember to save (e=export, s=save). Quit now? (y/n): ")).strip().lower()
             except Exception:
                 confirm = 'y'
             if confirm == 'y':
@@ -842,16 +928,13 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
         elif key == 'e':
             # Export current figure to a file; default extension .svg if missing
             try:
-                # List existing figure files
-                folder = os.getcwd()
+                from .utils import list_files_in_subdirectory, get_organized_path
+                # List existing figure files in Figures/ subdirectory
                 fig_extensions = ('.svg', '.png', '.jpg', '.jpeg', '.pdf', '.eps', '.tif', '.tiff')
-                files = []
-                try:
-                    files = sorted([f for f in os.listdir(folder) if f.lower().endswith(fig_extensions)])
-                except Exception:
-                    files = []
+                file_list = list_files_in_subdirectory(fig_extensions, 'figure')
+                files = [f[0] for f in file_list]
                 if files:
-                    print("Existing figure files:")
+                    print("Existing figure files in Figures/:")
                     for i, f in enumerate(files, 1):
                         print(f"  {i}: {f}")
                 
@@ -870,7 +953,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                         if yn != 'y':
                             _print_menu(len(all_cycles), is_dqdv)
                             continue
-                        fname = name
+                        target = file_list[idx-1][1]  # Full path from list
                         already_confirmed = True
                     else:
                         print("Invalid number.")
@@ -880,12 +963,15 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     root, ext = os.path.splitext(fname)
                     if ext == '':
                         fname = fname + '.svg'
-                
-                try:
-                    if already_confirmed:
+                    # Use organized path unless it's an absolute path
+                    if os.path.isabs(fname):
                         target = fname
                     else:
-                        target = _confirm_overwrite(fname)
+                        target = get_organized_path(fname, 'figure')
+                
+                try:
+                    if not already_confirmed and os.path.exists(target):
+                        target = _confirm_overwrite(target)
                     if target:
                         # If exporting SVG, make background transparent for PowerPoint
                         _, ext2 = os.path.splitext(target)
@@ -984,7 +1070,7 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 xy_in = getattr(fig, '_ec_legend_xy_in', (0.0, 0.0))
                 print(f"Legend is {'ON' if vis else 'off'}; position (inches from center): x={xy_in[0]:.2f}, y={xy_in[1]:.2f}")
                 while True:
-                    sub = input("Legend: t=toggle, m=set position (x y inches), q=back: ").strip().lower()
+                    sub = input(_colorize_prompt("Legend: (t=toggle, m=set position, q=back): ")).strip().lower()
                     if not sub:
                         continue
                     if sub == 'q':
@@ -1075,15 +1161,13 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             _print_menu(len(all_cycles), is_dqdv)
             continue
         elif key == 'i':
-            # Import style from .bps/.bpsg/.bpcfg (with numbered list)
+            # Import style from .bps/.bpsg/.bpcfg (with numbered list from Styles/)
             try:
-                try:
-                    _style_files = sorted([f for f in os.listdir(os.getcwd()) 
-                                          if f.lower().endswith(('.bps', '.bpsg', '.bpcfg'))])
-                except Exception:
-                    _style_files = []
+                from .utils import list_files_in_subdirectory
+                style_file_list = list_files_in_subdirectory(('.bps', '.bpsg', '.bpcfg'), 'style')
+                _style_files = [f[0] for f in style_file_list]
                 if _style_files:
-                    print("Available style files:")
+                    print("Available style files in Styles/:")
                     for _i, _f in enumerate(_style_files, 1):
                         print(f"  {_i}: {_f}")
                 inp = input("Enter number or filename (.bps/.bpsg, q=cancel): ").strip()
@@ -1093,22 +1177,34 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                 if inp.isdigit() and _style_files:
                     _idx = int(inp)
                     if 1 <= _idx <= len(_style_files):
-                        path = os.path.join(os.getcwd(), _style_files[_idx-1])
+                        path = style_file_list[_idx-1][1]  # Full path from list
                     else:
                         print("Invalid number."); _print_menu(len(all_cycles), is_dqdv); continue
                 else:
                     path = inp
-                    if not os.path.isfile(path):
-                        # Try adding extensions
+                    # If it's not an absolute path, check in Styles/ subdirectory
+                    if not os.path.isabs(path) and not os.path.isfile(path):
                         found = False
+                        styles_dir = os.path.join(os.getcwd(), 'Styles')
                         for ext in ['.bps', '.bpsg', '.bpcfg']:
                             alt = path if path.lower().endswith(ext) else path + ext
-                            if os.path.isfile(alt):
-                                path = alt
+                            styles_path = os.path.join(styles_dir, alt)
+                            if os.path.isfile(styles_path):
+                                path = styles_path
                                 found = True
                                 break
                         if not found:
-                            print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
+                            # Try current directory as fallback
+                            for ext in ['.bps', '.bpsg', '.bpcfg']:
+                                alt = path if path.lower().endswith(ext) else path + ext
+                                if os.path.isfile(alt):
+                                    path = alt
+                                    found = True
+                                    break
+                            if not found:
+                                print("File not found in Styles/ or current directory."); _print_menu(len(all_cycles), is_dqdv); continue
+                    elif not os.path.isfile(path):
+                        print("File not found."); _print_menu(len(all_cycles), is_dqdv); continue
                 
                 with open(path, 'r', encoding='utf-8') as f:
                     cfg = json.load(f)
@@ -1341,13 +1437,15 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                     print(f"  Tick widths: xM={x_maj if x_maj is not None else '?'} xm={x_min if x_min is not None else '?'} yM={y_maj if y_maj is not None else '?'} ym={y_min if y_min is not None else '?'}")
                     if cur_curve_lw is not None:
                         print(f"  Curves (all): {cur_curve_lw:.3g}")
-                    print("Line submenu:")
-                    print("  c  : change curve line widths")
-                    print("  f  : change frame (axes spines) and tick widths")
-                    print("  ld : show line and dots (markers) for all curves")
-                    print("  d  : show only dots (no connecting line) for all curves")
-                    print("  q  : return")
-                    sub = input("Choose (c/f/ld/d/q): ").strip().lower()
+                    print("\033[1mLine submenu:\033[0m")
+                    print(f"  {_colorize_menu('c  : change curve line widths')}")
+                    print(f"  {_colorize_menu('f  : change frame (axes spines) and tick widths')}")
+                    print(f"  {_colorize_menu('g  : toggle grid lines')}")
+                    print(f"  {_colorize_menu('l  : show only lines (no markers) for all curves')}")
+                    print(f"  {_colorize_menu('ld : show line and dots (markers) for all curves')}")
+                    print(f"  {_colorize_menu('d  : show only dots (no connecting line) for all curves')}")
+                    print(f"  {_colorize_menu('q  : return')}")
+                    sub = input(_colorize_prompt("Choose (c/f/g/l/ld/d/q): ")).strip().lower()
                     if not sub:
                         continue
                     if sub == 'q':
@@ -1405,6 +1503,54 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
                             print(f"Set frame width={frame_w}, major tick width={tick_major}, minor tick width={tick_minor}")
                         except ValueError:
                             print("Invalid numeric value(s).")
+                    elif sub == 'g':
+                        push_state("grid")
+                        # Toggle grid state - check if any gridlines are visible
+                        current_grid = False
+                        try:
+                            # Check if grid is currently on by looking at gridline visibility
+                            for line in ax.get_xgridlines() + ax.get_ygridlines():
+                                if line.get_visible():
+                                    current_grid = True
+                                    break
+                        except Exception:
+                            current_grid = ax.xaxis._gridOnMajor if hasattr(ax.xaxis, '_gridOnMajor') else False
+                        
+                        new_grid_state = not current_grid
+                        if new_grid_state:
+                            # Enable grid with light styling
+                            ax.grid(True, color='0.85', linestyle='-', linewidth=0.5, alpha=0.7)
+                        else:
+                            # Disable grid (no style parameters when disabling)
+                            ax.grid(False)
+                        fig.canvas.draw()
+                        print(f"Grid {'enabled' if new_grid_state else 'disabled'}.")
+                    elif sub == 'l':
+                        # Line-only mode: set linestyle to solid and remove markers
+                        push_state("line-only")
+                        for cyc, role, ln in _iter_cycle_lines(cycle_lines):
+                            try:
+                                # Check if already in line-only mode (has line style and no marker)
+                                current_ls = ln.get_linestyle()
+                                current_marker = ln.get_marker()
+                                # If already line-only (has line, no marker), skip
+                                if current_ls not in ['None', '', ' ', 'none'] and current_marker in ['None', '', ' ', 'none', None]:
+                                    continue
+                                # Otherwise, set to line-only
+                                ln.set_linestyle('-')
+                                ln.set_marker('None')
+                            except Exception:
+                                pass
+                        try:
+                            _rebuild_legend(ax)
+                            fig.canvas.draw()
+                        except Exception:
+                            try:
+                                _rebuild_legend(ax)
+                            except Exception:
+                                pass
+                            fig.canvas.draw_idle()
+                        print("Applied line-only style to all curves.")
                     elif sub == 'ld':
                         # Line + dots for all curves
                         push_state("line+dots")
@@ -1475,9 +1621,9 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             # Spine colors (w=top, a=left, s=bottom, d=right)
             try:
                 print("Set spine colors (with matching tick and label colors):")
-                print("  w : top spine    | a : left spine")
-                print("  s : bottom spine | d : right spine")
-                print("Example: w:red a:#4561F7 s:blue d:green")
+                print(_colorize_inline_commands("  w : top spine    | a : left spine"))
+                print(_colorize_inline_commands("  s : bottom spine | d : right spine"))
+                print(_colorize_inline_commands("Example: w:red a:#4561F7 s:blue d:green"))
                 line = input("Enter mappings (e.g., w:red a:#4561F7) or q: ").strip()
                 if line and line.lower() != 'q':
                     push_state("color-spine")
@@ -1799,10 +1945,17 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
         elif key == 'c':
             print(f"Total cycles: {len(all_cycles)}")
             print("Enter one of:")
-            print("  - numbers: e.g. 1 5 10")
-            print("  - mappings: e.g. 1:red 5:#00B006 10:blue")
-            print("  - numbers + palette: e.g. 1 5 10 viridis")
-            print("  - all (optionally with palette): e.g. all or all viridis")
+            print(_colorize_inline_commands("  - numbers: e.g. 1 5 10"))
+            print(_colorize_inline_commands("  - mappings: e.g. 1:red 5:#00B006 10:blue"))
+            print(_colorize_inline_commands("  - numbers + palette: e.g. 1 5 10 viridis  OR  1 5 10 3"))
+            print(_colorize_inline_commands("  - all (optionally with palette): e.g. all  OR  all viridis  OR  all 3"))
+            print("\nRecommended palettes for scientific publications:")
+            print("  1. tab10      - Distinct, colorblind-friendly (default matplotlib)")
+            print("  2. Set2       - Soft, pastel colors for presentations")
+            print("  3. Dark2      - Bold, saturated colors for print")
+            print("  4. viridis    - Perceptually uniform (blue→yellow)")
+            print("  5. plasma     - Perceptually uniform (purple→yellow)")
+            print("  (Enter palette name OR number)")
             line = input("Selection: ").strip()
             if not line:
                 continue
@@ -2014,8 +2167,10 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             continue
         elif key == 'x':
             # X-axis: set limits only
-            lim = input("Set X limits (min max): ").strip()
-            if lim:
+            while True:
+                lim = input("Set X limits (min max, q=back): ").strip()
+                if not lim or lim.lower() == 'q':
+                    break
                 try:
                     lo, hi = map(float, lim.split())
                     ax.set_xlim(lo, hi)
@@ -2028,8 +2183,10 @@ def electrochem_interactive_menu(fig, ax, cycle_lines: Dict[int, Dict[str, Optio
             continue
         elif key == 'y':
             # Y-axis: set limits only
-            lim = input("Set Y limits (min max): ").strip()
-            if lim:
+            while True:
+                lim = input("Set Y limits (min max, q=back): ").strip()
+                if not lim or lim.lower() == 'q':
+                    break
                 try:
                     lo, hi = map(float, lim.split())
                     ax.set_ylim(lo, hi)
@@ -2376,10 +2533,12 @@ def _export_style_dialog(cfg: Dict, default_ext: str = '.bpcfg'):
         default_ext: Default file extension ('.bps' for style-only, '.bpsg' for style+geometry)
     """
     try:
-        # List files with matching extension
-        bpcfg_files = sorted([f for f in os.listdir('.') if f.lower().endswith(default_ext) or f.lower().endswith('.bpcfg')])
+        from .utils import list_files_in_subdirectory, get_organized_path
+        # List files with matching extension in Styles/ subdirectory
+        file_list = list_files_in_subdirectory((default_ext, '.bpcfg'), 'style')
+        bpcfg_files = [f[0] for f in file_list]
         if bpcfg_files:
-            print(f"Existing {default_ext} files:")
+            print(f"Existing {default_ext} files in Styles/:")
             for i, f in enumerate(bpcfg_files, 1):
                 print(f"  {i}: {f}")
         
@@ -2389,15 +2548,22 @@ def _export_style_dialog(cfg: Dict, default_ext: str = '.bpcfg'):
 
         target_path = ""
         if choice.isdigit() and bpcfg_files and 1 <= int(choice) <= len(bpcfg_files):
-            target_path = bpcfg_files[int(choice) - 1]
+            target_path = file_list[int(choice) - 1][1]  # Full path from list
             if not _confirm_overwrite(target_path):
                 return
         else:
             # Add default extension if no extension provided
             if not any(choice.lower().endswith(ext) for ext in ['.bps', '.bpsg', '.bpcfg']):
-                target_path = f"{choice}{default_ext}"
+                filename_with_ext = f"{choice}{default_ext}"
             else:
-                target_path = choice
+                filename_with_ext = choice
+            
+            # Use organized path unless it's an absolute path
+            if os.path.isabs(filename_with_ext):
+                target_path = filename_with_ext
+            else:
+                target_path = get_organized_path(filename_with_ext, 'style')
+            
             if not _confirm_overwrite(target_path):
                 return
         
